@@ -1169,6 +1169,38 @@
 
         .cert-drop-active { border-color:var(--primary) !important; background:var(--primary-light) !important; }
 
+        /* Calendar */
+        .cal-cell { min-height:100px; border:1px solid var(--gray-200); padding:6px; cursor:pointer; transition:background 0.1s; position:relative; }
+        .cal-cell:hover { background:var(--gray-100); }
+        .cal-cell.today { background:var(--primary-light); }
+        .cal-cell.other-month { background:var(--gray-50); color:var(--gray-400); }
+        .cal-cell .cal-day { font-weight:600; font-size:13px; margin-bottom:4px; }
+        .cal-cell .cal-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin:1px; }
+        .cal-header-cell { padding:8px; text-align:center; font-weight:600; font-size:12px; text-transform:uppercase; color:var(--gray-500); background:var(--gray-100); border:1px solid var(--gray-200); }
+        .cal-event-item { padding:6px 10px; border-left:4px solid var(--gray-300); margin-bottom:6px; background:var(--gray-50); border-radius:0 4px 4px 0; font-size:13px; }
+
+        /* Sign-off status */
+        .signoff-completed { background:var(--success-light) !important; }
+        .signoff-pending { background:var(--gray-100) !important; }
+        .signoff-cell { cursor:pointer; }
+        .signoff-cell:hover { opacity:0.8; }
+
+        /* QC progress bar */
+        .qc-progress { height:8px; background:var(--gray-200); border-radius:4px; overflow:hidden; }
+        .qc-progress-bar { height:100%; background:var(--success); border-radius:4px; transition:width 0.3s; }
+
+        /* Trade status badges */
+        .trade-available { color:var(--success); }
+        .trade-busy { color:var(--danger); }
+        .trade-preferred { color:var(--primary); }
+        .trade-donotuse { color:var(--danger); font-weight:700; }
+
+        /* Dispute traffic lights */
+        .dispute-open { color:#C1121F; }
+        .dispute-investigating { color:#E67E22; }
+        .dispute-resolved { color:#40916C; }
+        .dispute-closed { color:var(--gray-500); }
+
         @media (max-width: 768px) {
             .sidebar { width: 60px; padding: 16px 0; }
             .sidebar .logo span, .nav-section-label, .nav-item span { display: none; }
@@ -1224,6 +1256,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             <span>Reports</span>
         </div>
+        <div class="nav-item" onclick="showSection('calendar')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="8" cy="14" r="1"/><circle cx="12" cy="14" r="1"/><circle cx="16" cy="14" r="1"/></svg>
+            <span>Calendar</span>
+        </div>
+        <div class="nav-item" onclick="showSection('mileage')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/><path d="M4.93 4.93l2.83 2.83"/></svg>
+            <span>Mileage</span>
+        </div>
         <div class="nav-item" onclick="showSection('paysheet')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><line x1="8" y1="3" x2="8" y2="21"/></svg>
             <span>Pay Sheet</span>
@@ -1236,6 +1276,10 @@
         <div class="nav-item" onclick="showSection('subcontractors')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/></svg>
             <span>Sub-Contractors</span>
+        </div>
+        <div class="nav-item" onclick="showSection('trades')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+            <span>Trades</span>
         </div>
         <div class="nav-section-label">System</div>
         <div class="nav-item" onclick="showSection('settings')">
@@ -1564,6 +1608,15 @@
                 <tbody id="report-tender-history"></tbody>
             </table>
         </div>
+
+        <!-- Mileage Summary Card -->
+        <div class="card" style="margin-top:4px;">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Mileage Summary</span>
+                <button class="btn btn-secondary btn-sm" onclick="showSection('mileage')">View Full Log</button>
+            </div>
+            <div id="report-mileage-summary" style="padding:16px;"></div>
+        </div>
     </div>
 
     <!-- Pay Sheet Section -->
@@ -1686,6 +1739,7 @@
                 <button class="tender-tab active" onclick="showSubconTab('invoices')">Invoices</button>
                 <button class="tender-tab" onclick="showSubconTab('certs')">Certifications</button>
                 <button class="tender-tab" onclick="showSubconTab('notes')">Notes</button>
+                <button class="tender-tab" onclick="showSubconTab('inductions')">Inductions</button>
             </div>
 
             <div id="subcon-tab-content"></div>
@@ -1707,6 +1761,93 @@
                     <tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Type</th><th>Day Rate</th><th>Status</th><th>Actions</th></tr>
                 </thead>
                 <tbody id="staff-table"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Calendar Section -->
+    <div id="section-calendar" class="section">
+        <div class="page-header">
+            <h1>Calendar</h1>
+            <div style="display:flex;gap:12px;align-items:center;">
+                <button class="btn btn-secondary btn-sm" onclick="changeCalMonth(-1)">&larr; Previous</button>
+                <span id="cal-month-label" style="font-weight:600;font-size:16px;min-width:160px;text-align:center;"></span>
+                <button class="btn btn-secondary btn-sm" onclick="changeCalMonth(1)">Next &rarr;</button>
+                <button class="btn btn-secondary btn-sm" onclick="goCalToday()">Today</button>
+            </div>
+        </div>
+        <div style="margin-bottom:12px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px;">
+            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#2D6A4F;display:inline-block;"></span> Jobs</span>
+            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#B5A16A;display:inline-block;"></span> Bookings</span>
+            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#C1121F;display:inline-block;"></span> Invoice Due</span>
+            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#E67E22;display:inline-block;"></span> Cert Expiry</span>
+            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#8E44AD;display:inline-block;"></span> Retention Release</span>
+            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#3498DB;display:inline-block;"></span> Tender Deadline</span>
+        </div>
+        <div class="card" style="overflow:hidden;">
+            <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);"></div>
+        </div>
+        <div id="cal-day-detail" style="margin-top:16px;display:none;" class="card">
+            <div class="card-header" id="cal-day-title">Events</div>
+            <div id="cal-day-events" style="padding:16px;"></div>
+        </div>
+    </div>
+
+    <!-- Mileage Section -->
+    <div id="section-mileage" class="section">
+        <div class="page-header">
+            <h1>Mileage Tracking</h1>
+            <div style="display:flex;gap:12px;align-items:center;">
+                <button class="btn btn-secondary btn-sm" onclick="exportMileageCSV()">Export CSV</button>
+                <button class="btn btn-primary" onclick="openMileageModal()">+ Add Entry</button>
+            </div>
+        </div>
+        <div class="stats-grid" id="mileage-stats"></div>
+        <div class="card">
+            <div class="card-header">Mileage Log</div>
+            <table>
+                <thead>
+                    <tr><th>Date</th><th>From</th><th>To</th><th>Miles</th><th>Purpose</th><th>Vehicle</th><th>HMRC Value</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="mileage-table"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Trades Directory Section -->
+    <div id="section-trades" class="section">
+        <div class="page-header">
+            <h1>Trades Directory</h1>
+            <div style="display:flex;gap:12px;align-items:center;">
+                <input type="text" class="search-bar" placeholder="Search trades..." oninput="renderTrades(this.value)">
+                <select class="search-bar" id="trade-type-filter" onchange="renderTrades()" style="width:auto;">
+                    <option value="all">All Trades</option>
+                    <option value="Cleaner">Cleaner</option>
+                    <option value="Window Cleaner">Window Cleaner</option>
+                    <option value="Garden Maintenance">Garden Maintenance</option>
+                    <option value="Deep Cleaner">Deep Cleaner</option>
+                    <option value="Carpet Cleaner">Carpet Cleaner</option>
+                    <option value="Waste Removal">Waste Removal</option>
+                    <option value="Labourer">Labourer</option>
+                    <option value="Electrician">Electrician</option>
+                    <option value="Plumber">Plumber</option>
+                    <option value="Painter">Painter</option>
+                    <option value="Scaffolder">Scaffolder</option>
+                    <option value="Skip Hire">Skip Hire</option>
+                    <option value="Other">Other</option>
+                </select>
+                <select class="search-bar" id="trade-region-filter" onchange="renderTrades()" style="width:auto;">
+                    <option value="all">All Regions</option>
+                </select>
+                <button class="btn btn-primary" onclick="openTradeModal()">+ Add Trade</button>
+            </div>
+        </div>
+        <div class="card">
+            <table>
+                <thead>
+                    <tr><th>Company</th><th>Trade</th><th>Contact</th><th>Phone</th><th>Location</th><th>Day Rate</th><th>Status</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="trades-table"></tbody>
             </table>
         </div>
     </div>
@@ -1964,6 +2105,31 @@
                 <tbody id="invoices-table"></tbody>
             </table>
         </div>
+
+        <!-- Purchase Orders -->
+        <div class="card" style="margin-top:20px;">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Purchase Orders</span>
+                <button class="btn btn-primary btn-sm" onclick="openPOModal()">+ Add PO</button>
+            </div>
+            <table>
+                <thead>
+                    <tr><th>PO Number</th><th>Client</th><th>Value</th><th>Invoiced</th><th>Remaining</th><th>Received</th><th>Expiry</th><th>Status</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="po-table"></tbody>
+            </table>
+        </div>
+
+        <!-- Credit Notes -->
+        <div class="card" style="margin-top:20px;">
+            <div class="card-header">Credit Notes</div>
+            <table>
+                <thead>
+                    <tr><th>CN #</th><th>Invoice</th><th>Client</th><th>Reason</th><th>Amount</th><th>Date</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="credit-notes-table"></tbody>
+            </table>
+        </div>
     </div>
 </div>
 
@@ -2117,7 +2283,8 @@
             <div class="form-row">
                 <div class="form-group">
                     <label>Order / PO Number</label>
-                    <input type="text" id="invoice-order-num" placeholder="e.g. PO-12345">
+                    <input type="text" id="invoice-order-num" placeholder="e.g. PO-12345" oninput="showPOBalance(this.value)">
+                    <div id="po-balance-hint" style="font-size:11px;color:var(--gray-500);margin-top:4px;"></div>
                 </div>
                 <div class="form-group">
                     <label>Invoice To (email/contact)</label>
@@ -2739,7 +2906,7 @@ function generateId() {
 }
 
 // ========== NAVIGATION ==========
-var NAV_SECTIONS = ['dashboard', 'clients', 'jobs', 'invoices', 'schedule', 'tenders', 'reports', 'paysheet', 'staff', 'subcontractors', 'settings'];
+var NAV_SECTIONS = ['dashboard', 'clients', 'jobs', 'invoices', 'schedule', 'tenders', 'reports', 'calendar', 'mileage', 'paysheet', 'staff', 'subcontractors', 'trades', 'settings'];
 
 function showSection(name) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -2758,6 +2925,9 @@ function showSection(name) {
     if (name === 'paysheet') renderPaysheet();
     if (name === 'staff') renderStaff();
     if (name === 'subcontractors') renderSubcontractors();
+    if (name === 'trades') renderTrades();
+    if (name === 'calendar') renderCalendar();
+    if (name === 'mileage') renderMileage();
     if (name === 'settings') loadSettings();
 }
 
@@ -3260,6 +3430,7 @@ function renderClients(search) {
                     </div>
                 </div>
                 ${c.notes ? `<div class="client-sub-section" style="margin-top:16px;"><h4>Notes</h4><p style="font-size:13px;color:var(--gray-600);">${esc(c.notes)}</p></div>` : ''}
+                ` + renderClientCommunications(c.id) + `
             </div></td></tr>`;
         }
 
@@ -3656,7 +3827,8 @@ function renderInvoices(filter) {
         if (inv.isQuote) {
             actions += `<button class="btn btn-success btn-sm" onclick="convertToInvoice('${inv.id}')" title="Convert to Invoice">&#8594; Inv</button>`;
         }
-        actions += `<button class="btn btn-danger btn-sm" onclick="deleteInvoice('${inv.id}')">Del</button>`;
+        if (!inv.isQuote) actions += '<button class="btn btn-accent btn-sm" onclick="createCreditNote(\'' + inv.id + '\')" title="Credit Note">CN</button>';
+        actions += '<button class="btn btn-danger btn-sm" onclick="deleteInvoice(\'' + inv.id + '\')">Del</button>';
 
         return `<tr>
             <td><input type="checkbox" class="inv-select-cb" value="${inv.id}" onchange="updateBulkDeleteBtn()"></td>
@@ -3670,6 +3842,8 @@ function renderInvoices(filter) {
             <td class="action-btns">${actions}</td>
         </tr>`;
     }).join('');
+    renderCreditNotes();
+    renderPurchaseOrders();
 }
 
 function toggleAllInvoiceSelect(checked) {
@@ -3707,9 +3881,12 @@ function refreshDashboard() {
     const activeJobs = jobs.filter(j => j.status !== 'completed').length;
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    var creditNotes = getData('creditNotes');
+    var cnThisMonth = creditNotes.filter(function(cn) { return new Date(cn.date) >= monthStart; })
+        .reduce(function(sum, cn) { return sum + (cn.amount || 0); }, 0);
     const revenue = invoices
         .filter(i => !i.isQuote && i.status === 'paid' && new Date(i.date) >= monthStart)
-        .reduce((sum, i) => sum + i.total, 0);
+        .reduce((sum, i) => sum + i.total, 0) - cnThisMonth;
     const outstanding = invoices
         .filter(i => !i.isQuote && (i.status === 'sent' || i.status === 'overdue'))
         .reduce((sum, i) => sum + i.total, 0);
@@ -3858,6 +4035,22 @@ function renderDashboardAlerts() {
         var pendVars = (tenders[vti].variations || []).filter(function(v) { return v.status === 'Submitted'; });
         if (pendVars.length > 0) {
             alerts.push({ type: 'warning', text: pendVars.length + ' variation' + (pendVars.length > 1 ? 's' : '') + ' pending: ' + (tenders[vti].name || ''), section: 'tenders' });
+        }
+    }
+
+    // Open disputes
+    var disputes = getData('disputes');
+    var openDisputes = disputes.filter(function(d) { return d.status === 'Open' || d.status === 'Investigating'; });
+    if (openDisputes.length > 0) {
+        alerts.push({ type: 'danger', text: openDisputes.length + ' open dispute' + (openDisputes.length > 1 ? 's' : ''), section: 'tenders' });
+    }
+
+    // PO warnings
+    var pos = getData('purchaseOrders');
+    var todayPO = new Date().toISOString().split('T')[0];
+    for (var poi = 0; poi < pos.length; poi++) {
+        if (pos[poi].expiryDate && pos[poi].expiryDate < todayPO) {
+            alerts.push({ type: 'danger', text: 'PO expired: ' + (pos[poi].poNumber || ''), section: 'invoices' });
         }
     }
 
@@ -4143,9 +4336,17 @@ function viewTender(id) {
     var varBadge = varCount > 0 ? ' (' + varCount + ')' : '';
     var diaryCount = (tender.siteDiary || []).length;
     var diaryBadge = diaryCount > 0 ? ' (' + diaryCount + ')' : '';
+    var disputeCount = (tender.disputes || getData('disputes').filter(function(d) { return d.tenderId === tender.id; })).length || 0;
+    var disputeBadge = disputeCount > 0 ? ' (' + disputeCount + ')' : '';
+    var costCount = (tender.costs || []).length;
+    var costBadge = costCount > 0 ? ' (' + costCount + ')' : '';
     var extraTabs = '<button class="tender-tab" onclick="showTenderTab(\'snagging\')">Snagging' + snagBadge + '</button>' +
         '<button class="tender-tab" onclick="showTenderTab(\'diary\')">Site Diary' + diaryBadge + '</button>' +
-        '<button class="tender-tab" onclick="showTenderTab(\'variations\')">Variations' + varBadge + '</button>';
+        '<button class="tender-tab" onclick="showTenderTab(\'variations\')">Variations' + varBadge + '</button>' +
+        '<button class="tender-tab" onclick="showTenderTab(\'signoff\')">Sign-Off</button>' +
+        '<button class="tender-tab" onclick="showTenderTab(\'qc\')">QC Checklists</button>' +
+        '<button class="tender-tab" onclick="showTenderTab(\'disputes\')">Disputes' + disputeBadge + '</button>' +
+        '<button class="tender-tab" onclick="showTenderTab(\'costs\')">Costs' + costBadge + '</button>';
     if (isCommercial) {
         tabsContainer.innerHTML = '<button class="tender-tab active" onclick="showTenderTab(\'commercial\')">Commercial</button>' +
             '<button class="tender-tab" onclick="showTenderTab(\'applications\')">Applications</button>' +
@@ -4419,6 +4620,22 @@ function renderTenderTab() {
         container.innerHTML = renderVariationsTab(currentTenderId);
     }
 
+    if (currentTenderTab === 'signoff') {
+        container.innerHTML = renderSignOffTab(currentTenderId);
+    }
+
+    if (currentTenderTab === 'qc') {
+        container.innerHTML = renderQCTab(currentTenderId);
+    }
+
+    if (currentTenderTab === 'disputes') {
+        container.innerHTML = renderDisputesTab(currentTenderId);
+    }
+
+    if (currentTenderTab === 'costs') {
+        container.innerHTML = renderCostsTab(currentTenderId);
+    }
+
     var invContainer = document.getElementById('tender-tab-invoicing-content');
     if (currentTenderTab === 'invoicing') {
         document.getElementById('tender-tab-card').style.display = 'none';
@@ -4621,6 +4838,8 @@ function renderTenderInvoicing(container, tender) {
             var invEntry = invoiced[p.plot + '_' + ct];
             if (val <= 0) { h.push('<td class="inv-cell">-</td>'); return; }
             var isInv = !!invEntry;
+            var signoffKey = p.plot + '_' + ct;
+            var isSignedOff = tender.signoffs && tender.signoffs[signoffKey] && tender.signoffs[signoffKey].status === 'signedoff';
             if (isInv) {
                 var invRef = typeof invEntry === 'object' ? (invEntry.ref || '') : (typeof invEntry === 'string' ? invEntry : '');
                 var invDate = typeof invEntry === 'object' && invEntry.date ? invEntry.date : '';
@@ -4631,12 +4850,14 @@ function renderTenderInvoicing(container, tender) {
                 if (invDate) h.push('<div style="font-size:9px;color:#F5B7B1;">' + formatDate(invDate) + '</div>');
                 h.push('</td>');
             } else {
-                var canClick = !!activeInv;
+                var canClick = !!activeInv && isSignedOff;
+                var notSignedLabel = !isSignedOff ? '<div style="font-size:9px;color:var(--warning);">Not signed off</div>' : '';
                 h.push('<td class="inv-cell' + (canClick ? ' inv-clickable' : '') + '" data-action="invoice" data-tender="' + tender.id + '" data-plot="' + p.plot + '" data-ct="' + ct + '" data-val="' + val + '" style="text-align:center;cursor:' + (canClick ? 'pointer' : 'default') + ';">');
                 h.push('<div style="color:' + (canClick ? 'var(--primary)' : 'var(--gray-400)') + ';font-weight:600;">' + fmtGBP(val) + '</div>');
                 if (canClick) {
                     h.push('<div style="font-size:9px;color:var(--gray-400);">Click to add</div>');
                 }
+                h.push(notSignedLabel);
                 h.push('</td>');
             }
         });
@@ -5318,6 +5539,25 @@ function renderReports() {
     renderAgedDebt();
     renderCashFlow();
     renderCISReturn();
+    renderReportMileage();
+}
+
+function renderReportMileage() {
+    var container = document.getElementById('report-mileage-summary');
+    if (!container) return;
+    var log = getData('mileageLog');
+    var now = new Date();
+    var yearKey = String(now.getFullYear());
+    var totalMilesYear = 0;
+    for (var i = 0; i < log.length; i++) {
+        if (log[i].date && log[i].date.substring(0, 4) === yearKey) totalMilesYear += (parseFloat(log[i].miles) || 0);
+    }
+    var hmrc = totalMilesYear <= 10000 ? totalMilesYear * 0.45 : (10000 * 0.45) + ((totalMilesYear - 10000) * 0.25);
+    container.innerHTML = '<div class="stats-grid">' +
+        '<div class="stat-card"><div class="label">Total Miles (' + yearKey + ')</div><div class="value">' + totalMilesYear.toFixed(0) + '</div></div>' +
+        '<div class="stat-card"><div class="label">HMRC Claim Value</div><div class="value">' + fmtGBP(hmrc) + '</div></div>' +
+        '<div class="stat-card"><div class="label">Total Entries</div><div class="value">' + log.length + '</div></div>' +
+        '</div>';
 }
 
 function renderProjectProfitability(tenders, clients) {
@@ -7149,7 +7389,7 @@ function viewSubcontractor(id) {
 function showSubconTab(tab) {
     currentSubconTab = tab;
     document.querySelectorAll('#subcon-tabs .tender-tab').forEach(t => t.classList.remove('active'));
-    const idx = { invoices: 0, certs: 1, notes: 2 }[tab];
+    var idx = { invoices: 0, certs: 1, notes: 2, inductions: 3 }[tab];
     document.querySelectorAll('#subcon-tabs .tender-tab')[idx].classList.add('active');
     renderSubconTab();
 }
@@ -7295,6 +7535,10 @@ function renderSubconTab() {
                 </div>`).join('')}
             </div>
         `;
+    }
+
+    if (currentSubconTab === 'inductions') {
+        container.innerHTML = renderInductionsTab('subcontractors', currentSubconId);
     }
 }
 
@@ -7971,6 +8215,7 @@ function renderStaff(search) {
             '<td>' + statusBadge + '</td>' +
             '<td>' +
             '<button class="btn btn-secondary btn-sm" onclick="openStaffModal(\'' + s.id + '\')">Edit</button> ' +
+            '<button class="btn btn-accent btn-sm" onclick="showStaffInductions(\'' + s.id + '\')" title="Inductions">Ind</button> ' +
             '<button class="btn btn-danger btn-sm" onclick="deleteStaff(\'' + s.id + '\')">&times;</button>' +
             '</td></tr>';
     }
@@ -9396,6 +9641,1088 @@ document.addEventListener('keydown', function(e) {
         openGlobalSearch();
     }
 });
+
+// ========== FEATURE 1: Plot Completion Sign-Off ==========
+function renderSignOffTab(tenderId) {
+    var tenders = getData('tenders');
+    var tender = tenders.find(function(t) { return t.id === tenderId; });
+    if (!tender || !tender.plots) return '<div class="empty-state"><p>No plots found.</p></div>';
+    var signoffs = tender.signoffs || {};
+    var plots = tender.plots;
+
+    var html = '<div style="padding:16px;">';
+    html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">';
+    html += '<select id="signoff-clean-filter" onchange="filterSignOffs()" style="padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:13px;">';
+    html += '<option value="all">All Clean Types</option><option value="build">BUILD</option><option value="reclean">Reclean</option><option value="sparkle">Sparkle</option><option value="additional">Additional</option></select>';
+    html += '<select id="signoff-status-filter" onchange="filterSignOffs()" style="padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:13px;">';
+    html += '<option value="all">All Status</option><option value="pending">Pending</option><option value="completed">Completed</option><option value="signedoff">Signed Off</option></select>';
+    html += '</div>';
+    html += '<div id="signoff-list">';
+    html += buildSignOffTable(plots, signoffs, 'all', 'all');
+    html += '</div></div>';
+    return html;
+}
+
+function buildSignOffTable(plots, signoffs, cleanFilter, statusFilter) {
+    var cleanTypes = ['build', 'reclean', 'sparkle', 'additional'];
+    var cleanLabels = { build: 'BUILD', reclean: 'Reclean', sparkle: 'Sparkle', additional: 'Additional' };
+    var rows = [];
+    for (var pi = 0; pi < plots.length; pi++) {
+        var p = plots[pi];
+        for (var ci = 0; ci < cleanTypes.length; ci++) {
+            var ct = cleanTypes[ci];
+            if (p[ct] <= 0) continue;
+            if (cleanFilter !== 'all' && ct !== cleanFilter) continue;
+            var key = p.plot + '_' + ct;
+            var so = signoffs[key] || null;
+            var status = so ? so.status : 'pending';
+            if (statusFilter !== 'all' && status !== statusFilter) continue;
+            rows.push({ plot: p.plot, houseType: p.houseType, cleanType: ct, cleanLabel: cleanLabels[ct], key: key, signoff: so, status: status });
+        }
+    }
+    if (rows.length === 0) return '<div class="empty-state"><p>No items match the current filters.</p></div>';
+    var html = '<table class="tender-data-table"><thead><tr><th>Plot</th><th>House Type</th><th>Clean Type</th><th>Completed Date</th><th>Signed Off By</th><th>Status</th></tr></thead><tbody>';
+    for (var ri = 0; ri < rows.length; ri++) {
+        var r = rows[ri];
+        var rowClass = r.status === 'signedoff' ? 'signoff-completed' : (r.status === 'completed' ? 'signoff-completed' : 'signoff-pending');
+        var statusBadge = r.status === 'signedoff' ? '<span class="badge badge-paid">Signed Off</span>' : (r.status === 'completed' ? '<span class="badge badge-completed">Completed</span>' : '<span class="badge badge-draft">Pending</span>');
+        html += '<tr class="' + rowClass + ' signoff-cell" onclick="toggleSignOff(\'' + r.key + '\')">' +
+            '<td><strong>' + r.plot + '</strong></td>' +
+            '<td>' + esc(r.houseType) + '</td>' +
+            '<td>' + r.cleanLabel + '</td>' +
+            '<td>' + (r.signoff ? formatDate(r.signoff.date) : '-') + '</td>' +
+            '<td>' + (r.signoff ? esc(r.signoff.signedBy) : '-') + '</td>' +
+            '<td>' + statusBadge + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    return html;
+}
+
+function toggleSignOff(key) {
+    var name = prompt('Signed off by (name):');
+    if (!name) return;
+    var tenders = getData('tenders');
+    var idx = tenders.findIndex(function(t) { return t.id === currentTenderId; });
+    if (idx === -1) return;
+    if (!tenders[idx].signoffs) tenders[idx].signoffs = {};
+    var today = new Date().toISOString().split('T')[0];
+    if (tenders[idx].signoffs[key] && tenders[idx].signoffs[key].status === 'signedoff') {
+        if (confirm('This is already signed off. Remove sign-off?')) {
+            delete tenders[idx].signoffs[key];
+        }
+    } else {
+        tenders[idx].signoffs[key] = { date: today, signedBy: name, status: 'signedoff' };
+    }
+    setData('tenders', tenders);
+    viewTender(currentTenderId);
+    showTenderTab('signoff');
+}
+
+function filterSignOffs() {
+    var cf = document.getElementById('signoff-clean-filter').value;
+    var sf = document.getElementById('signoff-status-filter').value;
+    var tenders = getData('tenders');
+    var tender = tenders.find(function(t) { return t.id === currentTenderId; });
+    if (!tender) return;
+    document.getElementById('signoff-list').innerHTML = buildSignOffTable(tender.plots || [], tender.signoffs || {}, cf, sf);
+}
+
+// ========== FEATURE 2: Credit Notes ==========
+function renderCreditNotes() {
+    var creditNotes = getData('creditNotes');
+    var clients = getData('clients');
+    var invoices = getData('invoices');
+    var tbody = document.getElementById('credit-notes-table');
+    if (!tbody) return;
+    if (creditNotes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><p>No credit notes yet.</p></td></tr>';
+        return;
+    }
+    creditNotes.sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
+    var html = '';
+    for (var i = 0; i < creditNotes.length; i++) {
+        var cn = creditNotes[i];
+        var client = cn.clientId ? clients.find(function(c) { return c.id === cn.clientId; }) : null;
+        html += '<tr>' +
+            '<td><strong>CN-' + esc(cn.id.substring(0, 6).toUpperCase()) + '</strong></td>' +
+            '<td>' + esc(cn.invoiceNumber || '') + '</td>' +
+            '<td>' + (client ? esc(client.name) : '-') + '</td>' +
+            '<td>' + esc(cn.reason || '') + '</td>' +
+            '<td style="color:var(--danger);">-' + fmtGBP(cn.amount || 0) + '</td>' +
+            '<td>' + formatDate(cn.date) + '</td>' +
+            '<td class="action-btns">' +
+            '<button class="btn btn-secondary btn-sm" onclick="printCreditNote(\'' + cn.id + '\')">Print</button> ' +
+            '<button class="btn btn-danger btn-sm" onclick="deleteCreditNote(\'' + cn.id + '\')">&times;</button>' +
+            '</td></tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function createCreditNote(invoiceId) {
+    var invoices = getData('invoices');
+    var inv = invoices.find(function(i) { return i.id === invoiceId; });
+    if (!inv) return alert('Invoice not found.');
+    var reason = prompt('Reason for credit note:');
+    if (!reason) return;
+    var amount = parseFloat(prompt('Credit note amount (max ' + inv.total.toFixed(2) + '):', inv.total.toFixed(2)));
+    if (isNaN(amount) || amount <= 0) return alert('Invalid amount.');
+    var cn = {
+        id: generateId(),
+        invoiceId: inv.id,
+        invoiceNumber: inv.number,
+        clientId: inv.clientId,
+        reason: reason,
+        amount: amount,
+        date: new Date().toISOString().split('T')[0],
+        createdAt: new Date().toISOString()
+    };
+    var creditNotes = getData('creditNotes');
+    creditNotes.push(cn);
+    setData('creditNotes', creditNotes);
+    renderInvoices();
+    renderCreditNotes();
+}
+
+function deleteCreditNote(id) {
+    if (!confirm('Delete this credit note?')) return;
+    var cns = getData('creditNotes').filter(function(c) { return c.id !== id; });
+    setData('creditNotes', cns);
+    renderCreditNotes();
+}
+
+function printCreditNote(id) {
+    var cn = getData('creditNotes').find(function(c) { return c.id === id; });
+    if (!cn) return;
+    var clients = getData('clients');
+    var client = cn.clientId ? clients.find(function(c) { return c.id === cn.clientId; }) : null;
+    var s = getSettings();
+    var area = document.getElementById('invoice-print-area');
+    var html = '';
+    html += '<div style="display:flex;justify-content:space-between;margin-bottom:30px;">';
+    html += '<div style="display:flex;gap:16px;align-items:flex-start;">';
+    if (s.logoData) html += '<img src="' + s.logoData + '" style="max-width:80px;max-height:80px;object-fit:contain;">';
+    html += '<div>';
+    if (s.companyName) html += '<h1 style="font-size:22px;margin-bottom:4px;color:#1B4332;">' + esc(s.companyName) + '</h1>';
+    if (s.companyAddress) html += '<p style="white-space:pre-line;font-size:13px;color:#555;">' + esc(s.companyAddress) + '</p>';
+    html += '</div></div>';
+    html += '<div style="text-align:right;">';
+    html += '<h2 style="font-size:28px;color:#C1121F;margin-bottom:8px;">CREDIT NOTE</h2>';
+    html += '<p style="font-size:16px;font-weight:700;">CN-' + esc(cn.id.substring(0, 6).toUpperCase()) + '</p>';
+    html += '</div></div>';
+    html += '<div style="margin-bottom:20px;padding:16px;background:#f5f5f5;border-radius:6px;">';
+    html += '<p><strong>Credit To:</strong> ' + (client ? esc(client.name) : '-') + '</p>';
+    html += '<p><strong>Original Invoice:</strong> ' + esc(cn.invoiceNumber) + '</p>';
+    html += '<p><strong>Date:</strong> ' + formatDate(cn.date) + '</p>';
+    html += '</div>';
+    html += '<div style="margin-bottom:20px;"><p><strong>Reason:</strong> ' + esc(cn.reason) + '</p></div>';
+    html += '<div style="text-align:right;"><p style="font-size:22px;font-weight:700;color:#C1121F;">Credit Amount: -' + fmtGBP(cn.amount) + '</p></div>';
+    area.innerHTML = html;
+    window.print();
+}
+
+// ========== FEATURE 3: Purchase Order Tracking ==========
+function renderPurchaseOrders() {
+    var pos = getData('purchaseOrders');
+    var clients = getData('clients');
+    var invoices = getData('invoices');
+    var tbody = document.getElementById('po-table');
+    if (!tbody) return;
+    if (pos.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><p>No purchase orders yet.</p></td></tr>';
+        return;
+    }
+    var html = '';
+    var today = new Date().toISOString().split('T')[0];
+    for (var i = 0; i < pos.length; i++) {
+        var po = pos[i];
+        var client = po.clientId ? clients.find(function(c) { return c.id === po.clientId; }) : null;
+        var invoicedAmt = invoices.filter(function(inv) { return inv.orderNum === po.poNumber && !inv.isQuote; })
+            .reduce(function(s, inv) { return s + (inv.total || 0); }, 0);
+        var remaining = (po.value || 0) - invoicedAmt;
+        var pctUsed = po.value > 0 ? (invoicedAmt / po.value) * 100 : 0;
+        var isExpired = po.expiryDate && po.expiryDate < today;
+        var isNearFull = pctUsed >= 80;
+        var statusBadge = isExpired ? '<span class="badge badge-overdue">Expired</span>' : (isNearFull ? '<span class="badge badge-pending">80%+ Used</span>' : '<span class="badge badge-completed">Active</span>');
+        html += '<tr' + (isExpired || isNearFull ? ' style="background:var(--warning-light);"' : '') + '>' +
+            '<td><strong>' + esc(po.poNumber) + '</strong></td>' +
+            '<td>' + (client ? esc(client.name) : '-') + '</td>' +
+            '<td>' + fmtGBP(po.value || 0) + '</td>' +
+            '<td>' + fmtGBP(invoicedAmt) + '</td>' +
+            '<td>' + fmtGBP(remaining) + '</td>' +
+            '<td>' + formatDate(po.dateReceived) + '</td>' +
+            '<td>' + formatDate(po.expiryDate) + '</td>' +
+            '<td>' + statusBadge + '</td>' +
+            '<td class="action-btns">' +
+            '<button class="btn btn-secondary btn-sm" onclick="editPO(\'' + po.id + '\')">Edit</button> ' +
+            '<button class="btn btn-danger btn-sm" onclick="deletePO(\'' + po.id + '\')">&times;</button>' +
+            '</td></tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function openPOModal(id) {
+    var po = id ? getData('purchaseOrders').find(function(p) { return p.id === id; }) : null;
+    var poNum = prompt('PO Number:', po ? po.poNumber : '');
+    if (!poNum) return;
+    var clients = getData('clients');
+    var clientNames = clients.map(function(c) { return c.name; }).join(', ');
+    var clientName = prompt('Client name (' + clientNames + '):', po ? (clients.find(function(c) { return c.id === po.clientId; }) || {}).name || '' : '');
+    var clientObj = clients.find(function(c) { return c.name.toLowerCase() === (clientName || '').toLowerCase(); });
+    var value = parseFloat(prompt('PO Value:', po ? po.value : ''));
+    if (isNaN(value)) return alert('Invalid value.');
+    var dateReceived = prompt('Date Received (YYYY-MM-DD):', po ? po.dateReceived : new Date().toISOString().split('T')[0]);
+    var expiryDate = prompt('Expiry Date (YYYY-MM-DD, leave blank if none):', po ? po.expiryDate || '' : '');
+    var notes = prompt('Notes:', po ? po.notes || '' : '');
+
+    var pos = getData('purchaseOrders');
+    if (po) {
+        var idx = pos.findIndex(function(p) { return p.id === po.id; });
+        pos[idx] = { id: po.id, poNumber: poNum, clientId: clientObj ? clientObj.id : '', value: value, dateReceived: dateReceived, expiryDate: expiryDate, notes: notes };
+    } else {
+        pos.push({ id: generateId(), poNumber: poNum, clientId: clientObj ? clientObj.id : '', value: value, dateReceived: dateReceived, expiryDate: expiryDate, notes: notes });
+    }
+    setData('purchaseOrders', pos);
+    renderPurchaseOrders();
+}
+
+function showPOBalance(poNum) {
+    var hint = document.getElementById('po-balance-hint');
+    if (!hint || !poNum) { if (hint) hint.innerHTML = ''; return; }
+    var pos = getData('purchaseOrders');
+    var po = pos.find(function(p) { return p.poNumber === poNum; });
+    if (!po) { hint.innerHTML = ''; return; }
+    var invoices = getData('invoices');
+    var invoicedAmt = invoices.filter(function(inv) { return inv.orderNum === po.poNumber && !inv.isQuote; })
+        .reduce(function(s, inv) { return s + (inv.total || 0); }, 0);
+    var remaining = (po.value || 0) - invoicedAmt;
+    var color = remaining <= 0 ? 'var(--danger)' : (remaining < po.value * 0.2 ? 'var(--warning)' : 'var(--success)');
+    hint.innerHTML = 'PO Value: ' + fmtGBP(po.value || 0) + ' | Invoiced: ' + fmtGBP(invoicedAmt) + ' | <strong style="color:' + color + ';">Remaining: ' + fmtGBP(remaining) + '</strong>';
+}
+
+function editPO(id) { openPOModal(id); }
+
+function deletePO(id) {
+    if (!confirm('Delete this purchase order?')) return;
+    setData('purchaseOrders', getData('purchaseOrders').filter(function(p) { return p.id !== id; }));
+    renderPurchaseOrders();
+}
+
+// ========== FEATURE 4: Dispute / Query Log ==========
+function renderDisputesTab(tenderId) {
+    var disputes = getData('disputes').filter(function(d) { return d.tenderId === tenderId; });
+    var html = '<div style="padding:16px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+    html += '<select id="dispute-status-filter" onchange="filterDisputes(\'' + tenderId + '\')" style="padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:13px;">';
+    html += '<option value="all">All Status</option><option value="Open">Open</option><option value="Investigating">Investigating</option><option value="Resolved">Resolved</option><option value="Closed">Closed</option></select>';
+    html += '<button class="btn btn-primary btn-sm" onclick="addDispute(\'' + tenderId + '\')">+ Add Dispute</button></div>';
+    html += '<div id="dispute-list">';
+    html += buildDisputeList(disputes, 'all');
+    html += '</div></div>';
+    return html;
+}
+
+function buildDisputeList(disputes, filter) {
+    var filtered = filter === 'all' ? disputes : disputes.filter(function(d) { return d.status === filter; });
+    if (filtered.length === 0) return '<div class="empty-state"><p>No disputes logged.</p></div>';
+    var statusColors = { 'Open': '#C1121F', 'Investigating': '#E67E22', 'Resolved': '#40916C', 'Closed': '#6B7265' };
+    var html = '<table class="tender-data-table"><thead><tr><th>Type</th><th>Related To</th><th>Description</th><th>Value at Risk</th><th>Date Raised</th><th>Status</th><th>Resolution</th><th>Actions</th></tr></thead><tbody>';
+    for (var i = 0; i < filtered.length; i++) {
+        var d = filtered[i];
+        var dotColor = statusColors[d.status] || '#6B7265';
+        html += '<tr>' +
+            '<td>' + esc(d.type || '') + '</td>' +
+            '<td>' + esc(d.relatedTo || '') + '</td>' +
+            '<td>' + esc(d.description || '') + '</td>' +
+            '<td>' + (d.valueAtRisk ? fmtGBP(d.valueAtRisk) : '-') + '</td>' +
+            '<td>' + formatDate(d.dateRaised) + '</td>' +
+            '<td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + dotColor + ';margin-right:6px;"></span>' + esc(d.status || '') + '</td>' +
+            '<td>' + esc(d.resolution || '') + '</td>' +
+            '<td class="action-btns">' +
+            '<button class="btn btn-secondary btn-sm" onclick="editDispute(\'' + d.id + '\')">Edit</button> ' +
+            '<button class="btn btn-danger btn-sm" onclick="deleteDispute(\'' + d.id + '\')">&times;</button></td></tr>';
+    }
+    html += '</tbody></table>';
+    return html;
+}
+
+function addDispute(tenderId) {
+    var type = prompt('Type (Client Query / Subbie Dispute / Invoice Dispute / Defect):', 'Client Query');
+    if (!type) return;
+    var relatedTo = prompt('Related to (invoice #, plot, subbie name):');
+    var description = prompt('Description:');
+    if (!description) return;
+    var valueAtRisk = parseFloat(prompt('Value at risk (0 if none):', '0')) || 0;
+    var d = {
+        id: generateId(),
+        tenderId: tenderId,
+        type: type,
+        relatedTo: relatedTo || '',
+        description: description,
+        valueAtRisk: valueAtRisk,
+        dateRaised: new Date().toISOString().split('T')[0],
+        status: 'Open',
+        resolution: '',
+        createdAt: new Date().toISOString()
+    };
+    var disputes = getData('disputes');
+    disputes.push(d);
+    setData('disputes', disputes);
+    if (currentTenderId) { viewTender(currentTenderId); showTenderTab('disputes'); }
+}
+
+function editDispute(id) {
+    var disputes = getData('disputes');
+    var idx = disputes.findIndex(function(d) { return d.id === id; });
+    if (idx === -1) return;
+    var d = disputes[idx];
+    var status = prompt('Status (Open / Investigating / Resolved / Closed):', d.status);
+    if (!status) return;
+    var resolution = prompt('Resolution notes:', d.resolution || '');
+    d.status = status;
+    d.resolution = resolution || '';
+    disputes[idx] = d;
+    setData('disputes', disputes);
+    if (currentTenderId) { viewTender(currentTenderId); showTenderTab('disputes'); }
+}
+
+function deleteDispute(id) {
+    if (!confirm('Delete this dispute?')) return;
+    setData('disputes', getData('disputes').filter(function(d) { return d.id !== id; }));
+    if (currentTenderId) { viewTender(currentTenderId); showTenderTab('disputes'); }
+}
+
+function filterDisputes(tenderId) {
+    var sf = document.getElementById('dispute-status-filter').value;
+    var disputes = getData('disputes').filter(function(d) { return d.tenderId === tenderId; });
+    document.getElementById('dispute-list').innerHTML = buildDisputeList(disputes, sf);
+}
+
+// ========== FEATURE 5: Unified Calendar ==========
+var calYear = new Date().getFullYear();
+var calMonth = new Date().getMonth();
+
+function renderCalendar() {
+    var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    var label = document.getElementById('cal-month-label');
+    if (label) label.textContent = monthNames[calMonth] + ' ' + calYear;
+
+    var grid = document.getElementById('cal-grid');
+    if (!grid) return;
+
+    var events = getCalendarEvents(calYear, calMonth);
+    var firstDay = new Date(calYear, calMonth, 1);
+    var lastDay = new Date(calYear, calMonth + 1, 0);
+    var startDow = (firstDay.getDay() + 6) % 7; // Monday = 0
+    var daysInMonth = lastDay.getDate();
+    var today = new Date();
+    var todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+
+    var html = '';
+    var dayHeaders = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    for (var dh = 0; dh < 7; dh++) {
+        html += '<div class="cal-header-cell">' + dayHeaders[dh] + '</div>';
+    }
+
+    // Previous month fill
+    var prevMonth = new Date(calYear, calMonth, 0);
+    for (var pm = startDow - 1; pm >= 0; pm--) {
+        var pmDay = prevMonth.getDate() - pm;
+        html += '<div class="cal-cell other-month"><div class="cal-day">' + pmDay + '</div></div>';
+    }
+
+    for (var d = 1; d <= daysInMonth; d++) {
+        var dateStr = calYear + '-' + String(calMonth + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        var isToday = dateStr === todayStr;
+        var dayEvents = events[dateStr] || [];
+        html += '<div class="cal-cell' + (isToday ? ' today' : '') + '" onclick="showCalDay(\'' + dateStr + '\')">';
+        html += '<div class="cal-day">' + d + '</div>';
+        var dotColors = {};
+        for (var ei = 0; ei < dayEvents.length && ei < 8; ei++) {
+            dotColors[dayEvents[ei].color] = true;
+        }
+        var colorKeys = Object.keys(dotColors);
+        for (var ck = 0; ck < colorKeys.length; ck++) {
+            html += '<span class="cal-dot" style="background:' + colorKeys[ck] + ';"></span>';
+        }
+        if (dayEvents.length > 3) {
+            html += '<div style="font-size:10px;color:var(--gray-500);">+' + dayEvents.length + '</div>';
+        }
+        html += '</div>';
+    }
+
+    // Fill remaining cells
+    var totalCells = startDow + daysInMonth;
+    var remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+    for (var nm = 1; nm <= remaining; nm++) {
+        html += '<div class="cal-cell other-month"><div class="cal-day">' + nm + '</div></div>';
+    }
+
+    grid.innerHTML = html;
+    document.getElementById('cal-day-detail').style.display = 'none';
+}
+
+function getCalendarEvents(year, month) {
+    var events = {};
+    var mStr = String(month + 1).padStart(2, '0');
+    var prefix = year + '-' + mStr;
+
+    function addEvent(dateStr, title, color, type) {
+        if (!dateStr || dateStr.substring(0, 7) !== prefix) return;
+        if (!events[dateStr]) events[dateStr] = [];
+        events[dateStr].push({ title: title, color: color, type: type });
+    }
+
+    // Jobs
+    var jobs = getData('jobs');
+    for (var ji = 0; ji < jobs.length; ji++) {
+        addEvent(jobs[ji].date, esc(jobs[ji].name), '#2D6A4F', 'Job');
+        if (jobs[ji].endDate) addEvent(jobs[ji].endDate, esc(jobs[ji].name) + ' (End)', '#2D6A4F', 'Job');
+    }
+
+    // Bookings
+    var bookings = getData('bookings');
+    for (var bi = 0; bi < bookings.length; bi++) {
+        if (bookings[bi].status === 'active') {
+            addEvent(bookings[bi].date, esc(bookings[bi].name || bookings[bi].client || 'Booking'), '#B5A16A', 'Booking');
+        }
+    }
+
+    // Invoice due dates
+    var invoices = getData('invoices');
+    for (var ii = 0; ii < invoices.length; ii++) {
+        if (invoices[ii].dueDate) {
+            addEvent(invoices[ii].dueDate, 'Due: ' + esc(invoices[ii].number), '#C1121F', 'Invoice Due');
+        }
+    }
+
+    // Sub-contractor cert expiries
+    var subCerts = getData('subconCerts');
+    for (var sci = 0; sci < subCerts.length; sci++) {
+        if (subCerts[sci].expiryDate) {
+            addEvent(subCerts[sci].expiryDate, 'Cert expiry: ' + esc(subCerts[sci].type || ''), '#E67E22', 'Cert Expiry');
+        }
+    }
+
+    // Retention release dates
+    var tenders = getData('tenders');
+    for (var ti = 0; ti < tenders.length; ti++) {
+        if (tenders[ti].retentionReleaseDate) {
+            addEvent(tenders[ti].retentionReleaseDate, 'Retention: ' + esc(tenders[ti].name), '#8E44AD', 'Retention Release');
+        }
+        if (tenders[ti].deadline) {
+            addEvent(tenders[ti].deadline, 'Deadline: ' + esc(tenders[ti].name), '#3498DB', 'Tender Deadline');
+        }
+    }
+
+    // Company certs
+    var companyCerts = getCompanyCerts();
+    for (var cci = 0; cci < companyCerts.length; cci++) {
+        if (companyCerts[cci].expiryDate) {
+            addEvent(companyCerts[cci].expiryDate, 'Co cert: ' + esc(companyCerts[cci].type || ''), '#E67E22', 'Cert Expiry');
+        }
+    }
+
+    return events;
+}
+
+function showCalDay(dateStr) {
+    var events = getCalendarEvents(calYear, calMonth);
+    var dayEvents = events[dateStr] || [];
+    var detail = document.getElementById('cal-day-detail');
+    var title = document.getElementById('cal-day-title');
+    var eventsDiv = document.getElementById('cal-day-events');
+    title.textContent = 'Events for ' + formatDate(dateStr);
+    detail.style.display = 'block';
+    if (dayEvents.length === 0) {
+        eventsDiv.innerHTML = '<p style="color:var(--gray-400);">No events on this date.</p>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < dayEvents.length; i++) {
+        var ev = dayEvents[i];
+        html += '<div class="cal-event-item" style="border-left-color:' + ev.color + ';"><strong>' + esc(ev.type) + ':</strong> ' + ev.title + '</div>';
+    }
+    eventsDiv.innerHTML = html;
+}
+
+function changeCalMonth(delta) { calMonth += delta; if (calMonth > 11) { calMonth = 0; calYear++; } if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(); }
+function goCalToday() { var n = new Date(); calYear = n.getFullYear(); calMonth = n.getMonth(); renderCalendar(); }
+
+// ========== FEATURE 6: QC Checklists ==========
+var QC_TEMPLATES = {
+    build: ['Windows', 'Frames', 'Sills', 'Doors', 'Floors', 'Skirting', 'Kitchen units', 'Bathrooms', 'Stairs', 'External'],
+    sparkle: ['Windows', 'Frames', 'Sills', 'Doors', 'Floors', 'Skirting', 'Kitchen units', 'Bathrooms', 'Stairs', 'External', 'Light fittings', 'Switches', 'Radiators', 'Worktops', 'Appliances', 'Final polish'],
+    reclean: ['Windows', 'Frames', 'Sills', 'Doors', 'Floors', 'Skirting', 'Kitchen units', 'Bathrooms', 'Stairs', 'External'],
+    additional: ['Windows', 'Frames', 'Sills', 'Doors', 'Floors', 'Skirting', 'Kitchen units', 'Bathrooms', 'Stairs', 'External']
+};
+
+function renderQCTab(tenderId) {
+    var tenders = getData('tenders');
+    var tender = tenders.find(function(t) { return t.id === tenderId; });
+    if (!tender || !tender.plots) return '<div class="empty-state"><p>No plots found.</p></div>';
+    var qcChecklists = tender.qcChecklists || [];
+
+    var html = '<div style="padding:16px;">';
+    html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">';
+    html += '<select id="qc-plot-select" style="padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:13px;">';
+    for (var pi = 0; pi < tender.plots.length; pi++) {
+        html += '<option value="' + tender.plots[pi].plot + '">Plot ' + tender.plots[pi].plot + ' (' + esc(tender.plots[pi].houseType) + ')</option>';
+    }
+    html += '</select>';
+    html += '<select id="qc-clean-type" style="padding:6px 10px;border:1px solid var(--gray-300);border-radius:6px;font-size:13px;">';
+    html += '<option value="build">BUILD</option><option value="reclean">Reclean</option><option value="sparkle">Sparkle</option><option value="additional">Additional</option></select>';
+    html += '<button class="btn btn-primary btn-sm" onclick="startQCChecklist(\'' + tenderId + '\')">Start / Load Checklist</button>';
+    html += '</div>';
+    html += '<div id="qc-checklist-area">';
+    // Show existing checklists summary
+    if (qcChecklists.length > 0) {
+        html += '<table class="tender-data-table"><thead><tr><th>Plot</th><th>Clean Type</th><th>Inspector</th><th>Date</th><th>Completion</th><th>Actions</th></tr></thead><tbody>';
+        for (var qi = 0; qi < qcChecklists.length; qi++) {
+            var qc = qcChecklists[qi];
+            var total = (qc.items || []).length;
+            var checked = (qc.items || []).filter(function(it) { return it.checked; }).length;
+            var pct = total > 0 ? Math.round((checked / total) * 100) : 0;
+            html += '<tr>' +
+                '<td><strong>Plot ' + qc.plot + '</strong></td>' +
+                '<td>' + esc(qc.cleanType || '') + '</td>' +
+                '<td>' + esc(qc.inspector || '') + '</td>' +
+                '<td>' + formatDate(qc.date) + '</td>' +
+                '<td><div class="qc-progress" style="width:120px;display:inline-block;vertical-align:middle;"><div class="qc-progress-bar" style="width:' + pct + '%;"></div></div> ' + pct + '%</td>' +
+                '<td><button class="btn btn-secondary btn-sm" onclick="loadQCChecklist(\'' + tenderId + '\',' + qi + ')">View/Edit</button> ' +
+                '<button class="btn btn-danger btn-sm" onclick="deleteQCChecklist(\'' + tenderId + '\',' + qi + ')">&times;</button></td></tr>';
+        }
+        html += '</tbody></table>';
+    } else {
+        html += '<div class="empty-state"><p>No QC checklists yet. Select a plot and clean type to start one.</p></div>';
+    }
+    html += '</div></div>';
+    return html;
+}
+
+function startQCChecklist(tenderId) {
+    var plot = document.getElementById('qc-plot-select').value;
+    var cleanType = document.getElementById('qc-clean-type').value;
+    var inspector = prompt('Inspector name:');
+    if (!inspector) return;
+    var template = QC_TEMPLATES[cleanType] || QC_TEMPLATES.build;
+    var items = template.map(function(name) { return { name: name, checked: false, notes: '' }; });
+
+    var tenders = getData('tenders');
+    var idx = tenders.findIndex(function(t) { return t.id === tenderId; });
+    if (idx === -1) return;
+    if (!tenders[idx].qcChecklists) tenders[idx].qcChecklists = [];
+    tenders[idx].qcChecklists.push({
+        plot: plot,
+        cleanType: cleanType,
+        inspector: inspector,
+        date: new Date().toISOString().split('T')[0],
+        items: items
+    });
+    setData('tenders', tenders);
+    viewTender(currentTenderId);
+    showTenderTab('qc');
+}
+
+function loadQCChecklist(tenderId, qcIdx) {
+    var tenders = getData('tenders');
+    var tender = tenders.find(function(t) { return t.id === tenderId; });
+    if (!tender || !tender.qcChecklists || !tender.qcChecklists[qcIdx]) return;
+    var qc = tender.qcChecklists[qcIdx];
+    var area = document.getElementById('qc-checklist-area');
+    var total = qc.items.length;
+    var checked = qc.items.filter(function(it) { return it.checked; }).length;
+    var pct = total > 0 ? Math.round((checked / total) * 100) : 0;
+    var html = '<div class="card" style="margin-top:12px;">';
+    html += '<div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">';
+    html += '<span>Plot ' + qc.plot + ' - ' + esc(qc.cleanType) + ' | Inspector: ' + esc(qc.inspector) + '</span>';
+    html += '<span><div class="qc-progress" style="width:150px;display:inline-block;vertical-align:middle;"><div class="qc-progress-bar" style="width:' + pct + '%;"></div></div> ' + pct + '%</span>';
+    html += '</div>';
+    html += '<table class="tender-data-table"><thead><tr><th style="width:40px;">Done</th><th>Item</th><th>Notes</th></tr></thead><tbody>';
+    for (var i = 0; i < qc.items.length; i++) {
+        var item = qc.items[i];
+        html += '<tr style="background:' + (item.checked ? 'var(--success-light)' : 'white') + ';">' +
+            '<td><input type="checkbox" ' + (item.checked ? 'checked' : '') + ' onchange="toggleQCItem(\'' + tenderId + '\',' + qcIdx + ',' + i + ',this.checked)"></td>' +
+            '<td>' + esc(item.name) + '</td>' +
+            '<td><input type="text" value="' + esc(item.notes || '') + '" placeholder="Notes..." style="width:100%;padding:4px 8px;border:1px solid var(--gray-200);border-radius:4px;font-size:12px;" onchange="updateQCNote(\'' + tenderId + '\',' + qcIdx + ',' + i + ',this.value)"></td></tr>';
+    }
+    html += '</tbody></table></div>';
+    area.innerHTML = html;
+}
+
+function toggleQCItem(tenderId, qcIdx, itemIdx, checked) {
+    var tenders = getData('tenders');
+    var idx = tenders.findIndex(function(t) { return t.id === tenderId; });
+    if (idx === -1) return;
+    tenders[idx].qcChecklists[qcIdx].items[itemIdx].checked = checked;
+    setData('tenders', tenders);
+    loadQCChecklist(tenderId, qcIdx);
+}
+
+function updateQCNote(tenderId, qcIdx, itemIdx, note) {
+    var tenders = getData('tenders');
+    var idx = tenders.findIndex(function(t) { return t.id === tenderId; });
+    if (idx === -1) return;
+    tenders[idx].qcChecklists[qcIdx].items[itemIdx].notes = note;
+    setData('tenders', tenders);
+}
+
+function deleteQCChecklist(tenderId, qcIdx) {
+    if (!confirm('Delete this QC checklist?')) return;
+    var tenders = getData('tenders');
+    var idx = tenders.findIndex(function(t) { return t.id === tenderId; });
+    if (idx === -1) return;
+    tenders[idx].qcChecklists.splice(qcIdx, 1);
+    setData('tenders', tenders);
+    viewTender(currentTenderId);
+    showTenderTab('qc');
+}
+
+// ========== FEATURE 7: Client Communication Log ==========
+function renderClientCommunications(clientId) {
+    var clients = getData('clients');
+    var client = clients.find(function(c) { return c.id === clientId; });
+    if (!client) return '';
+    var comms = client.communications || [];
+    comms.sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
+    var html = '<div class="client-sub-section" style="margin-top:16px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
+    html += '<h4>Communications (' + comms.length + ')</h4>';
+    html += '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();addClientComm(\'' + clientId + '\')">+ Add</button></div>';
+    if (comms.length === 0) {
+        html += '<p style="color:var(--gray-400);font-size:13px;">No communications logged.</p>';
+    } else {
+        for (var i = 0; i < comms.length; i++) {
+            var cm = comms[i];
+            var typeBadges = { 'Phone': 'badge-progress', 'Email': 'badge-sent', 'Meeting': 'badge-completed', 'Site Visit': 'badge-pending' };
+            html += '<div style="padding:8px 12px;border-left:3px solid var(--primary);margin-bottom:8px;background:var(--gray-50);border-radius:0 4px 4px 0;">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+            html += '<span><span class="badge ' + (typeBadges[cm.type] || 'badge-draft') + '">' + esc(cm.type || '') + '</span> <strong>' + esc(cm.subject || '') + '</strong></span>';
+            html += '<span style="font-size:12px;color:var(--gray-500);">' + formatDate(cm.date) + '</span></div>';
+            html += '<div style="font-size:13px;color:var(--gray-600);">' + esc(cm.contactPerson || '') + '</div>';
+            if (cm.notes) html += '<div style="font-size:12px;color:var(--gray-500);margin-top:4px;">' + esc(cm.notes) + '</div>';
+            html += '</div>';
+        }
+    }
+    html += '</div>';
+    return html;
+}
+
+function addClientComm(clientId) {
+    var type = prompt('Type (Phone / Email / Meeting / Site Visit):', 'Phone');
+    if (!type) return;
+    var contactPerson = prompt('Contact person:');
+    var subject = prompt('Subject:');
+    if (!subject) return;
+    var notes = prompt('Notes:');
+    var date = prompt('Date (YYYY-MM-DD):', new Date().toISOString().split('T')[0]);
+
+    var clients = getData('clients');
+    var idx = clients.findIndex(function(c) { return c.id === clientId; });
+    if (idx === -1) return;
+    if (!clients[idx].communications) clients[idx].communications = [];
+    clients[idx].communications.push({
+        id: generateId(),
+        date: date,
+        type: type,
+        contactPerson: contactPerson || '',
+        subject: subject,
+        notes: notes || ''
+    });
+    setData('clients', clients);
+    renderClients();
+}
+
+// ========== FEATURE 8: Induction Records ==========
+function renderInductionsTab(type, entityId) {
+    var storageKey = type === 'staff' ? 'staff' : 'subcontractors';
+    var records = getData(storageKey);
+    var entity = records.find(function(r) { return r.id === entityId; });
+    if (!entity) return '';
+    var inductions = entity.inductionRecords || [];
+    var today = new Date().toISOString().split('T')[0];
+
+    var html = '<div style="padding:16px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+    html += '<h3>Induction Records</h3>';
+    html += '<button class="btn btn-primary btn-sm" onclick="addInduction(\'' + type + '\',\'' + entityId + '\')">+ Add Induction</button></div>';
+    if (inductions.length === 0) {
+        html += '<div class="empty-state"><p>No induction records.</p></div>';
+    } else {
+        html += '<table class="tender-data-table"><thead><tr><th>Site/Project</th><th>Date</th><th>Inducted By</th><th>Expiry</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+        for (var i = 0; i < inductions.length; i++) {
+            var ind = inductions[i];
+            var expired = ind.expiryDate && ind.expiryDate < today;
+            var statusBadge = expired ? '<span class="badge badge-overdue">Expired</span>' : '<span class="badge badge-completed">Valid</span>';
+            html += '<tr' + (expired ? ' style="background:var(--danger-light);"' : '') + '>' +
+                '<td><strong>' + esc(ind.site || '') + '</strong></td>' +
+                '<td>' + formatDate(ind.date) + '</td>' +
+                '<td>' + esc(ind.inductedBy || '') + '</td>' +
+                '<td>' + (ind.expiryDate ? formatDate(ind.expiryDate) : 'N/A') + '</td>' +
+                '<td>' + statusBadge + '</td>' +
+                '<td><button class="btn btn-danger btn-sm" onclick="deleteInduction(\'' + type + '\',\'' + entityId + '\',' + i + ')">&times;</button></td></tr>';
+        }
+        html += '</tbody></table>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function addInduction(type, entityId) {
+    var site = prompt('Site/Project name:');
+    if (!site) return;
+    var date = prompt('Induction date (YYYY-MM-DD):', new Date().toISOString().split('T')[0]);
+    var inductedBy = prompt('Inducted by:');
+    var expiryDate = prompt('Expiry date (YYYY-MM-DD, leave blank if N/A):');
+
+    var storageKey = type === 'staff' ? 'staff' : 'subcontractors';
+    var records = getData(storageKey);
+    var idx = records.findIndex(function(r) { return r.id === entityId; });
+    if (idx === -1) return;
+    if (!records[idx].inductionRecords) records[idx].inductionRecords = [];
+    records[idx].inductionRecords.push({
+        site: site, date: date, inductedBy: inductedBy || '', expiryDate: expiryDate || ''
+    });
+    setData(storageKey, records);
+    if (type === 'subcontractor' || type === 'subcontractors') {
+        showSubconTab('inductions');
+    } else {
+        renderStaff();
+    }
+}
+
+function deleteInduction(type, entityId, idx) {
+    if (!confirm('Delete this induction record?')) return;
+    var storageKey = type === 'staff' ? 'staff' : 'subcontractors';
+    var records = getData(storageKey);
+    var rIdx = records.findIndex(function(r) { return r.id === entityId; });
+    if (rIdx === -1) return;
+    records[rIdx].inductionRecords.splice(idx, 1);
+    setData(storageKey, records);
+    if (type === 'subcontractor' || type === 'subcontractors') {
+        showSubconTab('inductions');
+    } else {
+        renderStaff();
+    }
+}
+
+// ========== FEATURE 9: Material/Supply Costs ==========
+function renderCostsTab(tenderId) {
+    var tenders = getData('tenders');
+    var tender = tenders.find(function(t) { return t.id === tenderId; });
+    if (!tender) return '<div class="empty-state"><p>Tender not found.</p></div>';
+    var costs = tender.costs || [];
+    var totalCosts = costs.reduce(function(s, c) { return s + (c.amount || 0); }, 0);
+    var tenderValue = tender.grandTotal || 0;
+    var profit = tenderValue - totalCosts;
+
+    var html = '<div style="padding:16px;">';
+    html += '<div class="stats-grid" style="margin-bottom:16px;">';
+    html += '<div class="stat-card"><div class="label">Total Costs</div><div class="value">' + fmtGBP(totalCosts) + '</div></div>';
+    html += '<div class="stat-card"><div class="label">Tender Value</div><div class="value">' + fmtGBP(tenderValue) + '</div></div>';
+    html += '<div class="stat-card" style="border-color:' + (profit >= 0 ? 'var(--success)' : 'var(--danger)') + ';"><div class="label">Actual Profit</div><div class="value" style="color:' + (profit >= 0 ? 'var(--success)' : 'var(--danger)') + ';">' + fmtGBP(profit) + '</div></div>';
+    html += '</div>';
+    html += '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">';
+    html += '<button class="btn btn-primary btn-sm" onclick="addTenderCost(\'' + tenderId + '\')">+ Add Cost</button></div>';
+    if (costs.length === 0) {
+        html += '<div class="empty-state"><p>No costs recorded yet.</p></div>';
+    } else {
+        html += '<table class="tender-data-table"><thead><tr><th>Description</th><th>Category</th><th>Amount</th><th>Date</th><th>Actions</th></tr></thead><tbody>';
+        for (var i = 0; i < costs.length; i++) {
+            var c = costs[i];
+            html += '<tr>' +
+                '<td>' + esc(c.description || '') + '</td>' +
+                '<td><span class="badge badge-progress">' + esc(c.category || '') + '</span></td>' +
+                '<td>' + fmtGBP(c.amount || 0) + '</td>' +
+                '<td>' + formatDate(c.date) + '</td>' +
+                '<td><button class="btn btn-danger btn-sm" onclick="deleteTenderCost(\'' + tenderId + '\',' + i + ')">&times;</button></td></tr>';
+        }
+        html += '</tbody></table>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function addTenderCost(tenderId) {
+    var description = prompt('Description:');
+    if (!description) return;
+    var category = prompt('Category (Materials / Equipment Hire / Travel / Other):', 'Materials');
+    var amount = parseFloat(prompt('Amount:'));
+    if (isNaN(amount)) return alert('Invalid amount.');
+    var date = prompt('Date (YYYY-MM-DD):', new Date().toISOString().split('T')[0]);
+
+    var tenders = getData('tenders');
+    var idx = tenders.findIndex(function(t) { return t.id === tenderId; });
+    if (idx === -1) return;
+    if (!tenders[idx].costs) tenders[idx].costs = [];
+    tenders[idx].costs.push({ description: description, category: category, amount: amount, date: date });
+    setData('tenders', tenders);
+    viewTender(currentTenderId);
+    showTenderTab('costs');
+}
+
+function deleteTenderCost(tenderId, costIdx) {
+    if (!confirm('Delete this cost?')) return;
+    var tenders = getData('tenders');
+    var idx = tenders.findIndex(function(t) { return t.id === tenderId; });
+    if (idx === -1) return;
+    tenders[idx].costs.splice(costIdx, 1);
+    setData('tenders', tenders);
+    viewTender(currentTenderId);
+    showTenderTab('costs');
+}
+
+// ========== FEATURE 10: Trades Directory ==========
+function renderTrades(search) {
+    var trades = getData('tradesDirectory');
+    var searchInput = document.querySelector('#section-trades .search-bar');
+    search = search || (searchInput ? searchInput.value : '');
+    var typeFilter = document.getElementById('trade-type-filter');
+    var regionFilter = document.getElementById('trade-region-filter');
+    var tf = typeFilter ? typeFilter.value : 'all';
+    var rf = regionFilter ? regionFilter.value : 'all';
+
+    // Populate region filter
+    if (regionFilter) {
+        var regions = {};
+        for (var ri = 0; ri < trades.length; ri++) {
+            if (trades[ri].region) regions[trades[ri].region] = true;
+        }
+        var currentRegion = regionFilter.value;
+        regionFilter.innerHTML = '<option value="all">All Regions</option>';
+        var rKeys = Object.keys(regions).sort();
+        for (var rk = 0; rk < rKeys.length; rk++) {
+            regionFilter.innerHTML += '<option value="' + esc(rKeys[rk]) + '"' + (currentRegion === rKeys[rk] ? ' selected' : '') + '>' + esc(rKeys[rk]) + '</option>';
+        }
+    }
+
+    if (search) {
+        var q = search.toLowerCase();
+        trades = trades.filter(function(t) {
+            return (t.companyName || '').toLowerCase().indexOf(q) !== -1 ||
+                (t.trade || '').toLowerCase().indexOf(q) !== -1 ||
+                (t.contactPerson || '').toLowerCase().indexOf(q) !== -1 ||
+                (t.region || '').toLowerCase().indexOf(q) !== -1;
+        });
+    }
+    if (tf !== 'all') trades = trades.filter(function(t) { return t.trade === tf; });
+    if (rf !== 'all') trades = trades.filter(function(t) { return t.region === rf; });
+
+    var tbody = document.getElementById('trades-table');
+    if (!tbody) return;
+    if (trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><p>No trades found.</p></td></tr>';
+        return;
+    }
+    var html = '';
+    var statusColors = { 'Available': 'badge-completed', 'Busy': 'badge-overdue', 'Preferred': 'badge-sent', 'Do Not Use': 'badge-unpaid' };
+    for (var i = 0; i < trades.length; i++) {
+        var t = trades[i];
+        html += '<tr>' +
+            '<td><strong>' + esc(t.companyName || '') + '</strong>' + (t.notes ? '<div style="font-size:11px;color:var(--gray-500);">' + esc(t.notes) + '</div>' : '') + '</td>' +
+            '<td><span class="badge badge-progress">' + esc(t.trade || '') + '</span></td>' +
+            '<td>' + esc(t.contactPerson || '') + '</td>' +
+            '<td>' + esc(t.phone || '') + (t.email ? '<div style="font-size:11px;">' + esc(t.email) + '</div>' : '') + '</td>' +
+            '<td>' + esc(t.region || '') + (t.coverageArea ? '<div style="font-size:11px;color:var(--gray-500);">' + esc(t.coverageArea) + '</div>' : '') + '</td>' +
+            '<td>' + (t.dayRate ? fmtGBP(t.dayRate) : '-') + '</td>' +
+            '<td><span class="badge ' + (statusColors[t.status] || 'badge-draft') + '">' + esc(t.status || '') + '</span></td>' +
+            '<td class="action-btns">' +
+            '<button class="btn btn-secondary btn-sm" onclick="openTradeModal(\'' + t.id + '\')">Edit</button> ' +
+            '<button class="btn btn-success btn-sm" onclick="convertTradeToSubcon(\'' + t.id + '\')" title="Convert to Sub-Contractor">&#8594; Sub</button> ' +
+            '<button class="btn btn-danger btn-sm" onclick="deleteTrade(\'' + t.id + '\')">&times;</button></td></tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function openTradeModal(id) {
+    var trade = id ? getData('tradesDirectory').find(function(t) { return t.id === id; }) : null;
+    var companyName = prompt('Company Name:', trade ? trade.companyName : '');
+    if (!companyName) return;
+    var tradeType = prompt('Trade (Cleaner, Window Cleaner, Garden Maintenance, Deep Cleaner, Carpet Cleaner, Waste Removal, Labourer, Electrician, Plumber, Painter, Scaffolder, Skip Hire, Other):', trade ? trade.trade : 'Cleaner');
+    var contactPerson = prompt('Contact Person:', trade ? trade.contactPerson : '');
+    var phone = prompt('Phone:', trade ? trade.phone : '');
+    var email = prompt('Email:', trade ? trade.email : '');
+    var region = prompt('Location/Region:', trade ? trade.region : '');
+    var coverageArea = prompt('Coverage Area:', trade ? trade.coverageArea : '');
+    var dayRate = parseFloat(prompt('Day Rate:', trade ? trade.dayRate || '' : '')) || 0;
+    var notes = prompt('Notes:', trade ? trade.notes : '');
+    var status = prompt('Status (Available / Busy / Preferred / Do Not Use):', trade ? trade.status : 'Available');
+
+    var trades = getData('tradesDirectory');
+    if (trade) {
+        var idx = trades.findIndex(function(t) { return t.id === trade.id; });
+        trades[idx] = { id: trade.id, companyName: companyName, trade: tradeType, contactPerson: contactPerson, phone: phone, email: email, region: region, coverageArea: coverageArea, dayRate: dayRate, notes: notes, status: status };
+    } else {
+        trades.push({ id: generateId(), companyName: companyName, trade: tradeType, contactPerson: contactPerson, phone: phone, email: email, region: region, coverageArea: coverageArea, dayRate: dayRate, notes: notes, status: status });
+    }
+    setData('tradesDirectory', trades);
+    renderTrades();
+}
+
+function deleteTrade(id) {
+    if (!confirm('Delete this trade?')) return;
+    setData('tradesDirectory', getData('tradesDirectory').filter(function(t) { return t.id !== id; }));
+    renderTrades();
+}
+
+function convertTradeToSubcon(id) {
+    var trade = getData('tradesDirectory').find(function(t) { return t.id === id; });
+    if (!trade) return;
+    if (!confirm('Convert "' + trade.companyName + '" to a sub-contractor record?')) return;
+    var subs = getData('subcontractors');
+    subs.push({
+        id: generateId(),
+        name: trade.companyName,
+        contact: trade.contactPerson,
+        phone: trade.phone,
+        email: trade.email,
+        trade: trade.trade,
+        dayRate: trade.dayRate,
+        notes: trade.notes || '',
+        region: trade.region,
+        cisRate: 20
+    });
+    setData('subcontractors', subs);
+    alert('Sub-contractor created from ' + trade.companyName + '.');
+}
+
+// ========== FEATURE 11: Mileage Tracking ==========
+function renderMileage() {
+    var mileageLog = getData('mileageLog');
+    var tbody = document.getElementById('mileage-table');
+    var statsDiv = document.getElementById('mileage-stats');
+    if (!tbody || !statsDiv) return;
+
+    // Calculate stats
+    var now = new Date();
+    var monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    var yearKey = String(now.getFullYear());
+    var totalMilesMonth = 0;
+    var totalMilesYear = 0;
+    var totalHmrc = 0;
+
+    for (var mi = 0; mi < mileageLog.length; mi++) {
+        var entry = mileageLog[mi];
+        var miles = parseFloat(entry.miles) || 0;
+        if (entry.date && entry.date.substring(0, 7) === monthKey) totalMilesMonth += miles;
+        if (entry.date && entry.date.substring(0, 4) === yearKey) totalMilesYear += miles;
+    }
+    // HMRC calc: 45p first 10000, 25p after
+    if (totalMilesYear <= 10000) {
+        totalHmrc = totalMilesYear * 0.45;
+    } else {
+        totalHmrc = (10000 * 0.45) + ((totalMilesYear - 10000) * 0.25);
+    }
+
+    statsDiv.innerHTML =
+        '<div class="stat-card"><div class="label">Miles This Month</div><div class="value">' + totalMilesMonth.toFixed(0) + '</div></div>' +
+        '<div class="stat-card"><div class="label">Miles This Year</div><div class="value">' + totalMilesYear.toFixed(0) + '</div></div>' +
+        '<div class="stat-card"><div class="label">HMRC Claim (Year)</div><div class="value">' + fmtGBP(totalHmrc) + '</div></div>' +
+        '<div class="stat-card"><div class="label">Total Entries</div><div class="value">' + mileageLog.length + '</div></div>';
+
+    mileageLog.sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
+    if (mileageLog.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><p>No mileage entries yet.</p></td></tr>';
+        return;
+    }
+    var html = '';
+    var runningYear = 0;
+    // Recalc yearly running total for HMRC per-entry
+    var yearEntries = mileageLog.filter(function(e) { return e.date && e.date.substring(0, 4) === yearKey; })
+        .sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
+    var hmrcValues = {};
+    var runTotal = 0;
+    for (var yi = 0; yi < yearEntries.length; yi++) {
+        var ym = parseFloat(yearEntries[yi].miles) || 0;
+        var prevTotal = runTotal;
+        runTotal += ym;
+        var hmrcVal = 0;
+        if (prevTotal >= 10000) {
+            hmrcVal = ym * 0.25;
+        } else if (prevTotal + ym <= 10000) {
+            hmrcVal = ym * 0.45;
+        } else {
+            hmrcVal = ((10000 - prevTotal) * 0.45) + ((prevTotal + ym - 10000) * 0.25);
+        }
+        hmrcValues[yearEntries[yi].id || yi] = hmrcVal;
+    }
+
+    for (var i = 0; i < mileageLog.length; i++) {
+        var e = mileageLog[i];
+        var hVal = hmrcValues[e.id || i] || 0;
+        html += '<tr>' +
+            '<td>' + formatDate(e.date) + '</td>' +
+            '<td>' + esc(e.from || '') + '</td>' +
+            '<td>' + esc(e.to || '') + '</td>' +
+            '<td><strong>' + (e.miles || 0) + '</strong></td>' +
+            '<td>' + esc(e.purpose || '') + '</td>' +
+            '<td>' + esc(e.vehicle || '') + '</td>' +
+            '<td>' + fmtGBP(hVal) + '</td>' +
+            '<td class="action-btns">' +
+            '<button class="btn btn-secondary btn-sm" onclick="openMileageModal(\'' + (e.id || '') + '\')">Edit</button> ' +
+            '<button class="btn btn-danger btn-sm" onclick="deleteMileage(\'' + (e.id || '') + '\')">&times;</button></td></tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function openMileageModal(id) {
+    var entry = id ? getData('mileageLog').find(function(e) { return e.id === id; }) : null;
+    var date = prompt('Date (YYYY-MM-DD):', entry ? entry.date : new Date().toISOString().split('T')[0]);
+    if (!date) return;
+    var from = prompt('From:', entry ? entry.from : '');
+    var to = prompt('To:', entry ? entry.to : '');
+    var miles = parseFloat(prompt('Miles:', entry ? entry.miles : ''));
+    if (isNaN(miles)) return alert('Invalid miles.');
+    var purpose = prompt('Purpose / Project:', entry ? entry.purpose : '');
+    var vehicle = prompt('Vehicle registration:', entry ? entry.vehicle : '');
+
+    var log = getData('mileageLog');
+    if (entry) {
+        var idx = log.findIndex(function(e) { return e.id === entry.id; });
+        log[idx] = { id: entry.id, date: date, from: from, to: to, miles: miles, purpose: purpose, vehicle: vehicle };
+    } else {
+        log.push({ id: generateId(), date: date, from: from, to: to, miles: miles, purpose: purpose, vehicle: vehicle });
+    }
+    setData('mileageLog', log);
+    renderMileage();
+}
+
+function deleteMileage(id) {
+    if (!confirm('Delete this mileage entry?')) return;
+    setData('mileageLog', getData('mileageLog').filter(function(e) { return e.id !== id; }));
+    renderMileage();
+}
+
+function exportMileageCSV() {
+    var log = getData('mileageLog');
+    if (log.length === 0) return alert('No mileage data to export.');
+    var csv = 'Date,From,To,Miles,Purpose,Vehicle\n';
+    for (var i = 0; i < log.length; i++) {
+        var e = log[i];
+        csv += '"' + (e.date || '') + '","' + (e.from || '') + '","' + (e.to || '') + '",' + (e.miles || 0) + ',"' + (e.purpose || '') + '","' + (e.vehicle || '') + '"\n';
+    }
+    var blob = new Blob([csv], { type: 'text/csv' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'mileage_log.csv';
+    a.click();
+}
+
+// Staff inductions popup
+function showStaffInductions(staffId) {
+    var staff = getData('staff');
+    var s = staff.find(function(st) { return st.id === staffId; });
+    if (!s) return;
+    var html = renderInductionsTab('staff', staffId);
+    var modal = document.createElement('div');
+    modal.className = 'modal-overlay active';
+    modal.id = 'staff-induction-modal';
+    modal.innerHTML = '<div class="modal" style="max-width:700px;">' +
+        '<div class="modal-header"><span>Inductions - ' + esc(s.name) + '</span>' +
+        '<button class="modal-close" onclick="document.getElementById(\'staff-induction-modal\').remove()">&times;</button></div>' +
+        '<div class="modal-body">' + html + '</div></div>';
+    modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+}
 
 // Init
 try {
