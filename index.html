@@ -6317,73 +6317,41 @@ function generateMonthlyPaysheet() {
     h.push('<div><strong>Total Payable:</strong> <span style="color:var(--success);font-weight:700;">' + fmtGBP(grandPayable) + '</span></div>');
     h.push('</div>');
 
-    // Per contractor
+    // Table header
+    h.push('<table style="width:100%;border-collapse:collapse;font-size:14px;">');
+    h.push('<thead><tr style="border-bottom:2px solid var(--gray-300);">');
+    h.push('<th style="text-align:left;padding:10px 16px;">Sub-Contractor</th>');
+    h.push('<th style="text-align:left;padding:10px 16px;">Bank</th>');
+    h.push('<th style="text-align:left;padding:10px 16px;">Sort Code</th>');
+    h.push('<th style="text-align:left;padding:10px 16px;">Account No</th>');
+    h.push('<th style="text-align:right;padding:10px 16px;">Amount Payable</th>');
+    h.push('</tr></thead><tbody>');
+
+    // Per contractor - just name, bank, amount
     contractors.forEach(function(c) {
         var sc = allSubcons.find(function(sub) { return sub.name.toLowerCase().trim() === c.name.toLowerCase().trim(); });
 
-        h.push('<div style="border-bottom:2px solid var(--gray-200);padding:16px 20px;">');
-        h.push('<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">');
-        h.push('<div>');
-        h.push('<div style="font-weight:700;font-size:16px;">' + esc(c.name) + '</div>');
-        if (sc) {
-            var details = [];
-            if (sc.utr) details.push('UTR: ' + sc.utr);
-            if (sc.companyNum) details.push('Co: ' + sc.companyNum);
-            if (sc.vatNum) details.push('VAT: ' + sc.vatNum);
-            if (details.length) h.push('<div style="font-size:12px;color:var(--gray-500);">' + details.join(' | ') + '</div>');
-        }
-        h.push('</div>');
+        h.push('<tr style="border-bottom:1px solid var(--gray-200);">');
+        h.push('<td style="padding:10px 16px;font-weight:600;">' + esc(c.name) + '<div style="font-size:11px;color:var(--gray-500);font-weight:400;">' + c.invoices.length + ' invoice' + (c.invoices.length !== 1 ? 's' : '') + '</div></td>');
+        h.push('<td style="padding:10px 16px;">' + (sc && sc.bankName ? esc(sc.bankName) : '-') + '</td>');
+        h.push('<td style="padding:10px 16px;">' + (sc && sc.bankSort ? esc(sc.bankSort) : '-') + '</td>');
+        h.push('<td style="padding:10px 16px;">' + (sc && sc.bankAccount ? esc(sc.bankAccount) : '-') + '</td>');
+        h.push('<td style="padding:10px 16px;text-align:right;font-weight:700;font-size:16px;color:var(--primary);">' + fmtGBP(c.totalPayable) + '</td>');
+        h.push('</tr>');
 
-        // Bank details
-        h.push('<div style="text-align:right;font-size:12px;">');
-        if (sc && (sc.bankName || sc.bankAccount)) {
-            if (sc.bankAccountName) h.push('<div><strong>' + esc(sc.bankAccountName) + '</strong></div>');
-            if (sc.bankName) h.push('<div>' + esc(sc.bankName) + '</div>');
-            if (sc.bankSort) h.push('<div>Sort: ' + esc(sc.bankSort) + '</div>');
-            if (sc.bankAccount) h.push('<div>Acc: ' + esc(sc.bankAccount) + '</div>');
-        }
-        h.push('</div></div>');
-
-        // Invoice detail table
-        h.push('<table style="width:100%;font-size:12px;border-collapse:collapse;">');
-        h.push('<thead><tr style="border-bottom:1px solid var(--gray-300);color:var(--gray-500);">');
-        h.push('<th style="text-align:left;padding:4px 8px;">Invoice #</th>');
-        h.push('<th style="text-align:left;padding:4px 8px;">Date</th>');
-        h.push('<th style="text-align:left;padding:4px 8px;">Description</th>');
-        h.push('<th style="text-align:right;padding:4px 8px;">Net</th>');
-        h.push('<th style="text-align:right;padding:4px 8px;">VAT</th>');
-        h.push('<th style="text-align:right;padding:4px 8px;">CIS</th>');
-        h.push('<th style="text-align:right;padding:4px 8px;">Payable</th>');
-        h.push('</tr></thead><tbody>');
-
-        c.invoices.forEach(function(inv) {
-            h.push('<tr style="border-bottom:1px solid var(--gray-100);">');
-            h.push('<td style="padding:4px 8px;">' + esc(inv.invoiceNum || '-') + '</td>');
-            h.push('<td style="padding:4px 8px;">' + formatDate(inv.date) + '</td>');
-            h.push('<td style="padding:4px 8px;">' + esc(inv.description || '-') + '</td>');
-            h.push('<td style="padding:4px 8px;text-align:right;">' + fmtGBP(inv.netAmount) + '</td>');
-            h.push('<td style="padding:4px 8px;text-align:right;">' + fmtGBP(inv.vat) + '</td>');
-            h.push('<td style="padding:4px 8px;text-align:right;color:var(--danger);">' + (inv.cisAmount > 0 ? '-' + fmtGBP(inv.cisAmount) : '-') + '</td>');
-            h.push('<td style="padding:4px 8px;text-align:right;font-weight:600;">' + fmtGBP(inv.payable) + '</td>');
-            h.push('</tr>');
-        });
-
-        // Contractor totals
-        h.push('<tr style="border-top:1px solid var(--gray-300);font-weight:700;">');
-        h.push('<td colspan="3" style="padding:6px 8px;text-align:right;">Totals</td>');
-        h.push('<td style="padding:6px 8px;text-align:right;">' + fmtGBP(c.totalNet) + '</td>');
-        h.push('<td style="padding:6px 8px;text-align:right;">' + fmtGBP(c.totalVat) + '</td>');
-        h.push('<td style="padding:6px 8px;text-align:right;color:var(--danger);">-' + fmtGBP(c.totalCis) + '</td>');
-        h.push('<td style="padding:6px 8px;text-align:right;color:var(--success);font-size:14px;">' + fmtGBP(c.totalPayable) + '</td>');
-        h.push('</tr></tbody></table></div>');
     });
 
-    // Grand total footer
-    h.push('<div style="padding:16px 20px;background:var(--primary-light);display:flex;justify-content:space-between;align-items:center;">');
-    h.push('<div style="font-weight:700;font-size:16px;">Grand Total — ' + contractors.length + ' Contractors</div>');
-    h.push('<div style="text-align:right;">');
-    h.push('<div style="font-size:13px;">Net: ' + fmtGBP(grandNet) + ' | CIS: -' + fmtGBP(grandCis) + '</div>');
-    h.push('<div style="font-size:22px;font-weight:700;color:var(--primary);">Payable: ' + fmtGBP(grandPayable) + '</div>');
+    // Grand total row
+    h.push('<tr style="border-top:2px solid var(--gray-300);background:var(--primary-light);">');
+    h.push('<td colspan="4" style="padding:12px 16px;font-weight:700;font-size:16px;">Grand Total — ' + contractors.length + ' Contractors</td>');
+    h.push('<td style="padding:12px 16px;text-align:right;font-weight:700;font-size:20px;color:var(--primary);">' + fmtGBP(grandPayable) + '</td>');
+    h.push('</tr></tbody></table>');
+
+    // Footer
+    h.push('<div style="padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--gray-200);">');
+    h.push('<div style="font-size:12px;color:var(--gray-500);">' + contractors.length + ' contractors | ' + subs.length + ' invoices</div>');
+    h.push('<div style="text-align:right;font-size:12px;color:var(--gray-500);">');
+    h.push('Net: ' + fmtGBP(grandNet) + ' | CIS: -' + fmtGBP(grandCis) + ' | Payable: ' + fmtGBP(grandPayable));
     h.push('</div></div></div>');
 
     // Store for export/print
@@ -6999,15 +6967,25 @@ function renderSubcontractors(search) {
         const expiredCerts = certs.filter(c => c.subconId === sc.id && c.expiryDate && c.expiryDate < new Date().toISOString().split('T')[0]).length;
         const statusBadge = sc.status === 'active' ? 'badge-completed' : sc.status === 'inactive' ? 'badge-draft' : 'badge-unpaid';
 
+        var bankInfo = '';
+        if (sc.bankName || sc.bankAccount || sc.bankSort) {
+            var bankParts = [];
+            if (sc.bankName) bankParts.push(esc(sc.bankName));
+            if (sc.bankSort) bankParts.push('Sort: ' + esc(sc.bankSort));
+            if (sc.bankAccount) bankParts.push('Acc: ' + esc(sc.bankAccount));
+            bankInfo = bankParts.join(' | ');
+        } else {
+            bankInfo = '<span style="color:var(--danger);font-size:11px;">No bank details</span>';
+        }
+
         return `<div class="subcon-list-item" onclick="viewSubcontractor('${sc.id}')">
             <div class="subcon-avatar">${getSubconInitials(sc.name)}</div>
             <div class="subcon-info">
                 <h3>${esc(sc.name)} <span class="badge ${statusBadge}" style="font-size:11px;">${sc.status}</span></h3>
-                <p>${esc(sc.trade || 'No trade specified')}${sc.contact ? ' | ' + esc(sc.contact) : ''}</p>
+                <p style="font-size:12px;color:var(--gray-500);">${bankInfo}</p>
             </div>
             <div class="subcon-meta">
                 <div style="font-weight:600;">${invCount} invoice${invCount !== 1 ? 's' : ''}</div>
-                <div style="color:var(--gray-500);">${certCount} cert${certCount !== 1 ? 's' : ''}${expiredCerts > 0 ? ` <span style="color:var(--danger);">(${expiredCerts} expired)</span>` : ''}</div>
             </div>
         </div>`;
     }).join('');
@@ -7034,27 +7012,13 @@ function viewSubcontractor(id) {
     // Info cards
     document.getElementById('subcon-detail-info').innerHTML = `
         <div class="stat-card">
-            <div class="label">Contact</div>
+            <div class="label">Bank Details</div>
             <div style="font-size:14px;">
-                ${sc.contact ? `<strong>${esc(sc.contact)}</strong><br>` : ''}
-                ${sc.phone ? `${esc(sc.phone)}<br>` : ''}
-                ${sc.email ? `${esc(sc.email)}<br>` : ''}
-                ${sc.address ? `<span style="color:var(--gray-500);">${esc(sc.address)}</span>` : ''}
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="label">Business Details</div>
-            <div style="font-size:14px;">
-                ${sc.utr ? `UTR: <strong>${esc(sc.utr)}</strong><br>` : ''}
-                ${sc.companyNum ? `Co. No: <strong>${esc(sc.companyNum)}</strong><br>` : ''}
-                ${sc.vatNum ? `VAT: <strong>${esc(sc.vatNum)}</strong><br>` : ''}
-                CIS Rate: <strong>${sc.cisRate}%</strong><br>
-                ${sc.dayRate ? `Day Rate: <strong>${fmtGBP(sc.dayRate)}</strong><br>` : ''}
-                ${sc.bankName || sc.bankAccount ? `<br><strong style="color:var(--gray-500);">Bank Details</strong><br>` : ''}
                 ${sc.bankName ? `Bank: <strong>${esc(sc.bankName)}</strong><br>` : ''}
-                ${sc.bankAccountName ? `Acc Name: <strong>${esc(sc.bankAccountName)}</strong><br>` : ''}
-                ${sc.bankSort ? `Sort: <strong>${esc(sc.bankSort)}</strong><br>` : ''}
-                ${sc.bankAccount ? `Acc No: <strong>${esc(sc.bankAccount)}</strong>` : ''}
+                ${sc.bankSort ? `Sort Code: <strong>${esc(sc.bankSort)}</strong><br>` : ''}
+                ${sc.bankAccount ? `Account No: <strong>${esc(sc.bankAccount)}</strong><br>` : ''}
+                ${sc.bankAccountName ? `Account Name: <strong>${esc(sc.bankAccountName)}</strong>` : ''}
+                ${!sc.bankName && !sc.bankAccount && !sc.bankSort ? '<span style="color:var(--danger);">No bank details added</span>' : ''}
             </div>
         </div>
     `;
