@@ -6319,6 +6319,7 @@ function generateMonthlyPaysheet() {
     h.push('<th style="text-align:left;padding:10px 16px;">Sort Code</th>');
     h.push('<th style="text-align:left;padding:10px 16px;">Account No</th>');
     h.push('<th style="text-align:right;padding:10px 16px;">Amount Payable</th>');
+    h.push('<th style="padding:10px 16px;"></th>');
     h.push('</tr></thead><tbody>');
 
     // Per contractor - just name, bank, amount
@@ -6331,6 +6332,7 @@ function generateMonthlyPaysheet() {
         h.push('<td style="padding:10px 16px;">' + (sc && sc.bankSort ? esc(sc.bankSort) : '-') + '</td>');
         h.push('<td style="padding:10px 16px;">' + (sc && sc.bankAccount ? esc(sc.bankAccount) : '-') + '</td>');
         h.push('<td style="padding:10px 16px;text-align:right;font-weight:700;font-size:16px;color:var(--primary);">' + fmtGBP(c.totalPayable) + '</td>');
+        h.push('<td style="padding:10px 16px;"><button class="btn btn-secondary btn-sm" onclick="printIndividualPaysheet(\'' + esc(c.name).replace(/'/g, "\\'") + '\')">Print</button></td>');
         h.push('</tr>');
 
     });
@@ -6339,6 +6341,7 @@ function generateMonthlyPaysheet() {
     h.push('<tr style="border-top:2px solid var(--gray-300);background:var(--primary-light);">');
     h.push('<td colspan="4" style="padding:12px 16px;font-weight:700;font-size:16px;">Grand Total — ' + contractors.length + ' Contractors</td>');
     h.push('<td style="padding:12px 16px;text-align:right;font-weight:700;font-size:20px;color:var(--primary);">' + fmtGBP(grandPayable) + '</td>');
+    h.push('<td style="padding:12px 16px;"><button class="btn btn-primary btn-sm" onclick="printAllIndividualPaysheets()">Print All</button></td>');
     h.push('</tr></tbody></table>');
 
     // Footer
@@ -6406,6 +6409,132 @@ function printMonthlyPaysheet() {
     w.document.write('<html><head><title>Monthly Pay Sheet</title><style>body{font-family:-apple-system,sans-serif;padding:20px;font-size:13px;}table{width:100%;border-collapse:collapse;}th,td{padding:4px 8px;text-align:left;border-bottom:1px solid #ddd;}th{border-bottom:2px solid #999;color:#666;}h1{font-size:18px;margin-bottom:4px;}h2{font-size:14px;margin:16px 0 8px;}@media print{.no-print{display:none;}}</style></head><body>');
     if (s.companyName) w.document.write('<h1>' + s.companyName + '</h1>');
     w.document.write(container.innerHTML.replace(/class="[^"]*"/g, '').replace(/onclick="[^"]*"/g, '').replace(/<button[^>]*>.*?<\/button>/g, ''));
+    w.document.write('</body></html>');
+    w.document.close();
+    w.print();
+}
+
+function buildIndividualPaysheetHTML(contractorName) {
+    var d = window._monthlyPaysheetData;
+    if (!d) return '';
+    var c = d.contractors.find(function(x) { return x.name === contractorName; });
+    if (!c) return '';
+
+    var allSubcons = getData('subcontractors');
+    var sc = allSubcons.find(function(sub) { return sub.name.toLowerCase().trim() === c.name.toLowerCase().trim(); });
+    var s = getSettings();
+
+    var h = '';
+    // Company header
+    if (s.logoData) h += '<img src="' + s.logoData + '" style="max-width:60px;max-height:60px;float:right;">';
+    if (s.companyName) h += '<h1 style="font-size:18px;color:#1B4332;margin-bottom:2px;">' + esc(s.companyName) + '</h1>';
+    if (s.companyAddress) h += '<p style="font-size:11px;color:#555;">' + esc(s.companyAddress) + '</p>';
+    h += '<div style="clear:both;"></div>';
+
+    h += '<h2 style="font-size:16px;margin:20px 0 4px;border-bottom:2px solid #1B4332;padding-bottom:6px;">MONTHLY PAY SHEET — ' + esc(d.month) + '</h2>';
+
+    // Contractor details
+    h += '<div style="display:flex;justify-content:space-between;margin:16px 0;padding:12px;background:#f5f5f5;border-radius:6px;">';
+    h += '<div>';
+    h += '<div style="font-weight:700;font-size:16px;">' + esc(c.name) + '</div>';
+    h += '</div>';
+    h += '<div style="text-align:right;font-size:13px;">';
+    if (sc && sc.bankName) h += '<div>Bank: <strong>' + esc(sc.bankName) + '</strong></div>';
+    if (sc && sc.bankSort) h += '<div>Sort Code: <strong>' + esc(sc.bankSort) + '</strong></div>';
+    if (sc && sc.bankAccount) h += '<div>Account No: <strong>' + esc(sc.bankAccount) + '</strong></div>';
+    h += '</div></div>';
+
+    // Invoice table
+    h += '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px;">';
+    h += '<thead><tr style="border-bottom:2px solid #999;">';
+    h += '<th style="text-align:left;padding:6px 8px;">Invoice #</th>';
+    h += '<th style="text-align:left;padding:6px 8px;">Date</th>';
+    h += '<th style="text-align:left;padding:6px 8px;">Description</th>';
+    h += '<th style="text-align:right;padding:6px 8px;">Net</th>';
+    h += '<th style="text-align:right;padding:6px 8px;">VAT</th>';
+    h += '<th style="text-align:right;padding:6px 8px;">CIS</th>';
+    h += '<th style="text-align:right;padding:6px 8px;">Payable</th>';
+    h += '</tr></thead><tbody>';
+
+    c.invoices.forEach(function(inv) {
+        h += '<tr style="border-bottom:1px solid #ddd;">';
+        h += '<td style="padding:6px 8px;">' + esc(inv.invoiceNum || '-') + '</td>';
+        h += '<td style="padding:6px 8px;">' + formatDate(inv.date) + '</td>';
+        h += '<td style="padding:6px 8px;">' + esc(inv.description || '-') + '</td>';
+        h += '<td style="padding:6px 8px;text-align:right;">' + fmtGBP(inv.netAmount) + '</td>';
+        h += '<td style="padding:6px 8px;text-align:right;">' + fmtGBP(inv.vat) + '</td>';
+        h += '<td style="padding:6px 8px;text-align:right;">' + (inv.cisAmount > 0 ? '-' + fmtGBP(inv.cisAmount) : '-') + '</td>';
+        h += '<td style="padding:6px 8px;text-align:right;font-weight:600;">' + fmtGBP(inv.payable) + '</td>';
+        h += '</tr>';
+    });
+
+    // Totals
+    h += '<tr style="border-top:2px solid #333;font-weight:700;">';
+    h += '<td colspan="3" style="padding:8px;text-align:right;">Totals</td>';
+    h += '<td style="padding:8px;text-align:right;">' + fmtGBP(c.totalNet) + '</td>';
+    h += '<td style="padding:8px;text-align:right;">' + fmtGBP(c.totalVat) + '</td>';
+    h += '<td style="padding:8px;text-align:right;">' + (c.totalCis > 0 ? '-' + fmtGBP(c.totalCis) : '-') + '</td>';
+    h += '<td style="padding:8px;text-align:right;font-size:16px;">' + fmtGBP(c.totalPayable) + '</td>';
+    h += '</tr></tbody></table>';
+
+    // Amount payable summary
+    h += '<div style="margin-top:20px;padding:12px;background:#f5f5f5;border-radius:6px;text-align:right;">';
+    h += '<span style="font-size:14px;">Amount Payable: </span>';
+    h += '<span style="font-size:22px;font-weight:700;color:#1B4332;">' + fmtGBP(c.totalPayable) + '</span>';
+    h += '</div>';
+
+    // Bank details for payment
+    if (sc && (sc.bankName || sc.bankAccount)) {
+        h += '<div style="margin-top:16px;font-size:12px;color:#555;">';
+        h += '<strong>Payment to:</strong> ';
+        if (sc.bankAccountName) h += sc.bankAccountName + ' | ';
+        if (sc.bankName) h += sc.bankName + ' | ';
+        if (sc.bankSort) h += 'Sort: ' + sc.bankSort + ' | ';
+        if (sc.bankAccount) h += 'Acc: ' + sc.bankAccount;
+        h += '</div>';
+    }
+
+    // Footer
+    if (s.companyName) {
+        h += '<div style="margin-top:30px;border-top:1px solid #ccc;padding-top:8px;font-size:11px;color:#888;">';
+        h += esc(s.companyName);
+        if (s.companyPhone) h += ' | ' + esc(s.companyPhone);
+        if (s.companyEmail) h += ' | ' + esc(s.companyEmail);
+        h += '</div>';
+    }
+
+    return h;
+}
+
+function printIndividualPaysheet(contractorName) {
+    var html = buildIndividualPaysheetHTML(contractorName);
+    if (!html) { alert('Generate the monthly paysheet first.'); return; }
+    var w = window.open();
+    w.document.write('<html><head><title>Pay Sheet - ' + esc(contractorName) + '</title>');
+    w.document.write('<style>body{font-family:-apple-system,sans-serif;padding:30px;font-size:13px;max-width:800px;margin:0 auto;}table{width:100%;border-collapse:collapse;}th,td{padding:6px 8px;}@media print{body{padding:20px;}}</style>');
+    w.document.write('</head><body>');
+    w.document.write(html);
+    w.document.write('</body></html>');
+    w.document.close();
+    w.print();
+}
+
+function printAllIndividualPaysheets() {
+    var d = window._monthlyPaysheetData;
+    if (!d || !d.contractors.length) { alert('Generate the monthly paysheet first.'); return; }
+
+    var w = window.open();
+    w.document.write('<html><head><title>Monthly Pay Sheets - ' + esc(d.month) + '</title>');
+    w.document.write('<style>body{font-family:-apple-system,sans-serif;padding:30px;font-size:13px;max-width:800px;margin:0 auto;}table{width:100%;border-collapse:collapse;}th,td{padding:6px 8px;}.page-break{page-break-after:always;margin-bottom:40px;padding-bottom:20px;border-bottom:2px dashed #ccc;}@media print{.page-break{page-break-after:always;border-bottom:none;margin-bottom:0;}}</style>');
+    w.document.write('</head><body>');
+
+    d.contractors.forEach(function(c, idx) {
+        var isLast = idx === d.contractors.length - 1;
+        w.document.write('<div class="' + (isLast ? '' : 'page-break') + '">');
+        w.document.write(buildIndividualPaysheetHTML(c.name));
+        w.document.write('</div>');
+    });
+
     w.document.write('</body></html>');
     w.document.close();
     w.print();
