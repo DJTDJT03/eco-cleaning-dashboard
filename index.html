@@ -1605,14 +1605,8 @@
                     <tr>
                         <th style="width:40px;"><input type="checkbox" onchange="toggleAllPaysheetWeek(this.checked)"></th>
                         <th>Sub-Contractor</th>
-                        <th>Invoice #</th>
-                        <th>Description</th>
-                        <th>Site</th>
-                        <th>Date</th>
-                        <th>Amount</th>
-                        <th>VAT</th>
-                        <th>Total</th>
-                        <th>Status</th>
+                        <th>Bank Details</th>
+                        <th>Amount Payable</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -6010,42 +6004,54 @@ function renderPaysheet() {
     document.getElementById('paysheet-bulk-delete-btn').style.display = 'none';
 
     if (weekSubs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11" class="empty-state"><p>No sub-contractor invoices for this week. Drag & drop invoices above or add manually.</p></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><p>No sub-contractor invoices for this week. Drag & drop invoices above or add manually.</p></td></tr>';
         tfoot.innerHTML = '';
     } else {
-        tbody.innerHTML = weekSubs.map(s => {
-            const statusBadge = {
-                pending: 'badge-pending', approved: 'badge-progress', paid: 'badge-paid', disputed: 'badge-unpaid'
-            }[s.status] || 'badge-draft';
+        // Group by sub-contractor name and aggregate
+        var grouped = {};
+        weekSubs.forEach(function(s) {
+            var key = s.name.toLowerCase().trim();
+            if (!grouped[key]) grouped[key] = { name: s.name, invoices: [], totalPayable: 0 };
+            grouped[key].invoices.push(s);
+            grouped[key].totalPayable += s.payable || 0;
+        });
 
-            return `<tr>
-                <td><input type="checkbox" class="subinv-select-cb" value="${s.id}" onchange="updatePaysheetBulkBtn()"></td>
-                <td><strong>${esc(s.name)}</strong></td>
-                <td>${esc(s.invoiceNum)}</td>
-                <td>${esc(s.description)}</td>
-                <td>${esc(s.site)}</td>
-                <td>${formatDate(s.date)}</td>
-                <td class="num">${fmtGBP(s.netAmount)}</td>
-                <td class="num">${fmtGBP(s.vat)}</td>
-                <td class="num"><strong>${fmtGBP(s.total)}</strong></td>
-                <td><span class="badge ${statusBadge}">${s.status}</span></td>
-                <td class="action-btns">
-                    ${s.status === 'pending' ? `<button class="btn btn-success btn-sm" onclick="setSubInvoiceStatus('${s.id}','approved')">Approve</button>` : ''}
-                    ${s.status === 'approved' ? `<button class="btn btn-success btn-sm" onclick="setSubInvoiceStatus('${s.id}','paid')">Mark Paid</button>` : ''}
-                    ${s.fileData ? `<button class="btn btn-secondary btn-sm" onclick="viewSubInvFile('${s.id}')">View</button>` : ''}
-                    <button class="btn btn-secondary btn-sm" onclick="openModal('subinvoice','${s.id}')">Edit</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteSubInvoice('${s.id}')">Del</button>
-                </td>
-            </tr>`;
+        // Look up bank details from sub-contractors
+        var allSubcons = getData('subcontractors');
+
+        var rows = Object.values(grouped);
+        rows.sort(function(a, b) { return a.name.localeCompare(b.name); });
+
+        tbody.innerHTML = rows.map(function(g) {
+            var sc = allSubcons.find(function(c) { return c.name.toLowerCase().trim() === g.name.toLowerCase().trim(); });
+            var bankHtml = '-';
+            if (sc && (sc.bankName || sc.bankAccount || sc.bankSort)) {
+                bankHtml = '';
+                if (sc.bankAccountName) bankHtml += '<strong>' + esc(sc.bankAccountName) + '</strong><br>';
+                if (sc.bankName) bankHtml += esc(sc.bankName) + '<br>';
+                if (sc.bankSort) bankHtml += 'Sort: ' + esc(sc.bankSort) + '<br>';
+                if (sc.bankAccount) bankHtml += 'Acc: ' + esc(sc.bankAccount);
+            }
+
+            var ids = g.invoices.map(function(i) { return i.id; });
+            var checkboxVal = ids.join(',');
+
+            return '<tr>' +
+                '<td><input type="checkbox" class="subinv-select-cb" value="' + checkboxVal + '" onchange="updatePaysheetBulkBtn()"></td>' +
+                '<td><strong>' + esc(g.name) + '</strong><div style="font-size:11px;color:var(--gray-500);">' + g.invoices.length + ' invoice' + (g.invoices.length !== 1 ? 's' : '') + '</div></td>' +
+                '<td style="font-size:12px;">' + bankHtml + '</td>' +
+                '<td class="num" style="font-size:16px;font-weight:700;color:var(--primary);">' + fmtGBP(g.totalPayable) + '</td>' +
+                '<td class="action-btns">' +
+                    '<button class="btn btn-secondary btn-sm" onclick="viewSubconPayDetail(\'' + esc(g.name) + '\')">Detail</button>' +
+                '</td>' +
+            '</tr>';
         }).join('');
 
-        tfoot.innerHTML = `<tr>
-            <td colspan="6" style="text-align:right;">Week Totals</td>
-            <td class="num">${fmtGBP(totalNet)}</td>
-            <td class="num">${fmtGBP(totalVat)}</td>
-            <td class="num">${fmtGBP(totalGross)}</td>
-            <td colspan="2">Payable: <strong style="color:var(--success);">${fmtGBP(totalPayable)}</strong> (CIS: -${fmtGBP(totalCis)})</td>
-        </tr>`;
+        tfoot.innerHTML = '<tr>' +
+            '<td colspan="3" style="text-align:right;"><strong>Total Payable</strong></td>' +
+            '<td class="num" style="font-size:18px;font-weight:700;color:var(--success);">' + fmtGBP(totalPayable) + '</td>' +
+            '<td></td>' +
+        '</tr>';
     }
 
     // All invoices table
@@ -6087,6 +6093,66 @@ function renderAllSubInvoices() {
             </td>
         </tr>`;
     }).join('');
+}
+
+function viewSubconPayDetail(name) {
+    var subs = getData('subInvoices');
+    var weekEnd = getPayWeekEnd();
+    var weekStartStr = paysheetWeekStart.toISOString().split('T')[0];
+    var weekEndStr = weekEnd.toISOString().split('T')[0];
+    var invs = subs.filter(function(s) { return s.name.toLowerCase().trim() === name.toLowerCase().trim() && s.date >= weekStartStr && s.date <= weekEndStr; });
+
+    var h = '<h3 style="margin-bottom:12px;">' + esc(name) + ' — Week Detail</h3>';
+    h += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+    h += '<thead><tr style="border-bottom:2px solid var(--gray-300);">';
+    h += '<th style="text-align:left;padding:6px;">Invoice #</th><th style="text-align:left;padding:6px;">Description</th><th style="text-align:left;padding:6px;">Date</th>';
+    h += '<th style="text-align:right;padding:6px;">Net</th><th style="text-align:right;padding:6px;">VAT</th><th style="text-align:right;padding:6px;">CIS</th><th style="text-align:right;padding:6px;">Payable</th>';
+    h += '<th style="padding:6px;">Actions</th></tr></thead><tbody>';
+
+    var totNet = 0, totVat = 0, totCis = 0, totPay = 0;
+    invs.forEach(function(s) {
+        totNet += s.netAmount || 0;
+        totVat += s.vat || 0;
+        totCis += s.cisAmount || 0;
+        totPay += s.payable || 0;
+        h += '<tr style="border-bottom:1px solid var(--gray-100);">';
+        h += '<td style="padding:6px;">' + esc(s.invoiceNum || '-') + '</td>';
+        h += '<td style="padding:6px;">' + esc(s.description || '-') + '</td>';
+        h += '<td style="padding:6px;">' + formatDate(s.date) + '</td>';
+        h += '<td style="padding:6px;text-align:right;">' + fmtGBP(s.netAmount) + '</td>';
+        h += '<td style="padding:6px;text-align:right;">' + fmtGBP(s.vat) + '</td>';
+        h += '<td style="padding:6px;text-align:right;color:var(--danger);">-' + fmtGBP(s.cisAmount) + '</td>';
+        h += '<td style="padding:6px;text-align:right;font-weight:700;">' + fmtGBP(s.payable) + '</td>';
+        h += '<td style="padding:6px;">';
+        if (s.fileData) h += '<button class="btn btn-secondary btn-sm" onclick="viewSubInvFile(\'' + s.id + '\')">View</button> ';
+        h += '<button class="btn btn-secondary btn-sm" onclick="openModal(\'subinvoice\',\'' + s.id + '\');closePayDetailModal();">Edit</button>';
+        h += '</td></tr>';
+    });
+
+    h += '<tr style="border-top:2px solid var(--gray-300);font-weight:700;">';
+    h += '<td colspan="3" style="padding:6px;text-align:right;">Totals</td>';
+    h += '<td style="padding:6px;text-align:right;">' + fmtGBP(totNet) + '</td>';
+    h += '<td style="padding:6px;text-align:right;">' + fmtGBP(totVat) + '</td>';
+    h += '<td style="padding:6px;text-align:right;color:var(--danger);">-' + fmtGBP(totCis) + '</td>';
+    h += '<td style="padding:6px;text-align:right;color:var(--success);font-size:16px;">' + fmtGBP(totPay) + '</td>';
+    h += '<td></td></tr>';
+    h += '</tbody></table>';
+
+    // Show in a simple overlay
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;justify-content:center;align-items:flex-start;padding-top:60px;';
+    overlay.id = 'pay-detail-overlay';
+    overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+    var modal = document.createElement('div');
+    modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:800px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);';
+    modal.innerHTML = h + '<div style="text-align:right;margin-top:16px;"><button class="btn btn-secondary" onclick="closePayDetailModal()">Close</button></div>';
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+}
+
+function closePayDetailModal() {
+    var el = document.getElementById('pay-detail-overlay');
+    if (el) el.remove();
 }
 
 function toggleAllPaysheetWeek(checked) {
@@ -6132,11 +6198,13 @@ function viewSubInvFile(invId) {
 }
 
 function bulkDeleteSubInvoices() {
-    var selected = [];
-    document.querySelectorAll('.subinv-select-cb:checked').forEach(function(cb) { selected.push(cb.value); });
-    if (selected.length === 0) return;
-    if (!confirm('Delete ' + selected.length + ' sub-contractor invoice(s)? This cannot be undone.')) return;
-    var subs = getData('subInvoices').filter(function(s) { return selected.indexOf(s.id) === -1; });
+    var allIds = [];
+    document.querySelectorAll('.subinv-select-cb:checked').forEach(function(cb) {
+        cb.value.split(',').forEach(function(id) { if (id) allIds.push(id); });
+    });
+    if (allIds.length === 0) return;
+    if (!confirm('Delete ' + allIds.length + ' sub-contractor invoice(s)? This cannot be undone.')) return;
+    var subs = getData('subInvoices').filter(function(s) { return allIds.indexOf(s.id) === -1; });
     setData('subInvoices', subs);
     renderPaysheet();
 }
