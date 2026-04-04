@@ -1670,22 +1670,16 @@
         <div id="subcon-detail" style="display:none;">
             <button class="btn btn-secondary" onclick="closeSubconDetail()" style="margin-bottom:16px;">&larr; Back to Sub-Contractors</button>
 
-            <div class="subcon-profile-header">
-                <div style="display:flex;align-items:center;gap:14px;">
-                    <div class="subcon-avatar" id="subcon-detail-avatar"></div>
-                    <div>
-                        <h2 id="subcon-detail-name" style="font-size:20px;margin-bottom:2px;"></h2>
-                        <p id="subcon-detail-trade" style="color:var(--gray-500);font-size:14px;"></p>
-                    </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                <div>
+                    <h2 id="subcon-detail-name" style="font-size:20px;margin-bottom:4px;"></h2>
+                    <div id="subcon-detail-bank" style="font-size:14px;color:var(--gray-600);"></div>
                 </div>
                 <div class="action-btns">
                     <button class="btn btn-secondary btn-sm" id="subcon-edit-btn">Edit</button>
                     <button class="btn btn-danger btn-sm" id="subcon-delete-btn">Delete</button>
                 </div>
             </div>
-
-            <!-- Contact & Company Info -->
-            <div class="subcon-profile" id="subcon-detail-info"></div>
 
             <!-- Tabs -->
             <div class="tender-tabs" id="subcon-tabs">
@@ -6979,13 +6973,9 @@ function renderSubcontractors(search) {
         }
 
         return `<div class="subcon-list-item" onclick="viewSubcontractor('${sc.id}')">
-            <div class="subcon-avatar">${getSubconInitials(sc.name)}</div>
-            <div class="subcon-info">
-                <h3>${esc(sc.name)} <span class="badge ${statusBadge}" style="font-size:11px;">${sc.status}</span></h3>
+            <div class="subcon-info" style="flex:1;">
+                <h3 style="font-size:15px;">${esc(sc.name)}</h3>
                 <p style="font-size:12px;color:var(--gray-500);">${bankInfo}</p>
-            </div>
-            <div class="subcon-meta">
-                <div style="font-weight:600;">${invCount} invoice${invCount !== 1 ? 's' : ''}</div>
             </div>
         </div>`;
     }).join('');
@@ -7002,26 +6992,23 @@ function viewSubcontractor(id) {
     document.getElementById('subcon-list-container').style.display = 'none';
     document.getElementById('subcon-detail').style.display = 'block';
 
-    document.getElementById('subcon-detail-avatar').textContent = getSubconInitials(sc.name);
     document.getElementById('subcon-detail-name').textContent = sc.name;
-    document.getElementById('subcon-detail-trade').textContent = [sc.trade, sc.status !== 'active' ? '(' + sc.status + ')' : ''].filter(Boolean).join(' ');
+
+    // Bank details line
+    var bankLine = '';
+    if (sc.bankName || sc.bankSort || sc.bankAccount) {
+        var parts = [];
+        if (sc.bankName) parts.push(sc.bankName);
+        if (sc.bankSort) parts.push('Sort: ' + sc.bankSort);
+        if (sc.bankAccount) parts.push('Acc: ' + sc.bankAccount);
+        bankLine = parts.join(' | ');
+    } else {
+        bankLine = '<span style="color:var(--danger);">No bank details added</span>';
+    }
+    document.getElementById('subcon-detail-bank').innerHTML = bankLine;
 
     document.getElementById('subcon-edit-btn').onclick = () => openModal('subcontractor', id);
     document.getElementById('subcon-delete-btn').onclick = () => deleteSubcontractor(id);
-
-    // Info cards
-    document.getElementById('subcon-detail-info').innerHTML = `
-        <div class="stat-card">
-            <div class="label">Bank Details</div>
-            <div style="font-size:14px;">
-                ${sc.bankName ? `Bank: <strong>${esc(sc.bankName)}</strong><br>` : ''}
-                ${sc.bankSort ? `Sort Code: <strong>${esc(sc.bankSort)}</strong><br>` : ''}
-                ${sc.bankAccount ? `Account No: <strong>${esc(sc.bankAccount)}</strong><br>` : ''}
-                ${sc.bankAccountName ? `Account Name: <strong>${esc(sc.bankAccountName)}</strong>` : ''}
-                ${!sc.bankName && !sc.bankAccount && !sc.bankSort ? '<span style="color:var(--danger);">No bank details added</span>' : ''}
-            </div>
-        </div>
-    `;
 
     // Reset tabs
     document.querySelectorAll('#subcon-tabs .tender-tab').forEach(t => t.classList.remove('active'));
