@@ -1571,7 +1571,8 @@
         <div class="page-header">
             <h1>Weekly Pay Sheet</h1>
             <div style="display:flex;gap:12px;align-items:center;">
-                <button class="btn btn-secondary btn-sm" onclick="exportPaysheet()">Export CSV</button>
+                <button class="btn btn-secondary btn-sm" onclick="exportPaysheet()">Export Weekly CSV</button>
+                <button class="btn btn-accent btn-sm" onclick="generateMonthlyPaysheet()">Generate Monthly Paysheet</button>
                 <button class="btn btn-primary" onclick="openModal('subinvoice')">+ Add Manually</button>
             </div>
         </div>
@@ -1635,6 +1636,8 @@
                 <tbody id="all-subinvoices-body"></tbody>
             </table>
         </div>
+
+        <div id="monthly-paysheet-container" style="display:none;margin-top:20px;"></div>
     </div>
 
     <!-- Sub-Contractors Section -->
@@ -2323,9 +2326,14 @@
                     <input type="number" id="subinv-total" readonly style="background:var(--gray-50);font-weight:700;">
                 </div>
             </div>
-            <div class="form-group">
-                <label>CIS Deduction (%)</label>
-                <input type="number" id="subinv-cis" value="20" step="0.1" placeholder="20" oninput="calcSubInvTotal()">
+            <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;padding:10px 14px;background:var(--gray-50);border-radius:8px;">
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;">
+                    <input type="checkbox" id="subinv-cis-enabled" checked onchange="calcSubInvTotal()"> Apply CIS Deduction
+                </label>
+                <div class="form-group" style="margin-bottom:0;width:80px;">
+                    <input type="number" id="subinv-cis" value="20" step="0.1" placeholder="20" oninput="calcSubInvTotal()" style="padding:5px 8px;font-size:13px;">
+                </div>
+                <span style="font-size:13px;color:var(--gray-500);">%</span>
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -2912,6 +2920,7 @@ function openModal(type, id, isQuote) {
                 document.getElementById('subinv-site').value = inv.site || '';
                 document.getElementById('subinv-amount').value = inv.netAmount || '';
                 document.getElementById('subinv-vat-rate').value = inv.vatRate ?? 20;
+                document.getElementById('subinv-cis-enabled').checked = inv.cisEnabled !== false;
                 document.getElementById('subinv-cis').value = inv.cisRate ?? 20;
                 document.getElementById('subinv-status').value = inv.status || 'pending';
                 document.getElementById('subinv-notes').value = inv.notes || '';
@@ -3010,6 +3019,7 @@ function clearForm(type) {
             .forEach(id => document.getElementById(id).value = '');
         document.getElementById('subinv-date').value = new Date().toISOString().split('T')[0];
         document.getElementById('subinv-vat-rate').value = '20';
+        document.getElementById('subinv-cis-enabled').checked = true;
         document.getElementById('subinv-cis').value = '20';
         document.getElementById('subinv-status').value = 'pending';
     }
@@ -5707,13 +5717,14 @@ function getPayWeekEnd() {
 }
 
 function calcSubInvTotal() {
-    const net = parseFloat(document.getElementById('subinv-amount').value) || 0;
-    const vatRate = parseFloat(document.getElementById('subinv-vat-rate').value) || 0;
-    const cisRate = parseFloat(document.getElementById('subinv-cis').value) || 0;
-    const vat = net * (vatRate / 100);
-    const total = net + vat;
-    const cisAmount = net * (cisRate / 100);
-    const payable = total - cisAmount;
+    var net = parseFloat(document.getElementById('subinv-amount').value) || 0;
+    var vatRate = parseFloat(document.getElementById('subinv-vat-rate').value) || 0;
+    var cisEnabled = document.getElementById('subinv-cis-enabled').checked;
+    var cisRate = cisEnabled ? (parseFloat(document.getElementById('subinv-cis').value) || 0) : 0;
+    var vat = net * (vatRate / 100);
+    var total = net + vat;
+    var cisAmount = net * (cisRate / 100);
+    var payable = total - cisAmount;
 
     document.getElementById('subinv-vat').value = vat.toFixed(2);
     document.getElementById('subinv-total').value = total.toFixed(2);
@@ -5722,14 +5733,15 @@ function calcSubInvTotal() {
 }
 
 function saveSubInvoice() {
-    const id = document.getElementById('subinv-id').value;
-    const net = parseFloat(document.getElementById('subinv-amount').value) || 0;
-    const vatRate = parseFloat(document.getElementById('subinv-vat-rate').value) || 0;
-    const cisRate = parseFloat(document.getElementById('subinv-cis').value) || 0;
-    const vat = net * (vatRate / 100);
-    const total = net + vat;
-    const cisAmount = net * (cisRate / 100);
-    const payable = total - cisAmount;
+    var id = document.getElementById('subinv-id').value;
+    var net = parseFloat(document.getElementById('subinv-amount').value) || 0;
+    var vatRate = parseFloat(document.getElementById('subinv-vat-rate').value) || 0;
+    var cisEnabled = document.getElementById('subinv-cis-enabled').checked;
+    var cisRate = cisEnabled ? (parseFloat(document.getElementById('subinv-cis').value) || 0) : 0;
+    var vat = net * (vatRate / 100);
+    var total = net + vat;
+    var cisAmount = net * (cisRate / 100);
+    var payable = total - cisAmount;
 
     const inv = {
         id: id || generateId(),
@@ -5742,6 +5754,7 @@ function saveSubInvoice() {
         vatRate: vatRate,
         vat: vat,
         total: total,
+        cisEnabled: cisEnabled,
         cisRate: cisRate,
         cisAmount: cisAmount,
         payable: payable,
@@ -6233,6 +6246,207 @@ function exportPaysheet() {
     a.download = 'paysheet_week_ending_' + weekEndStr + '.csv';
     a.click();
     URL.revokeObjectURL(url);
+}
+
+function generateMonthlyPaysheet() {
+    var now = new Date();
+    var year = now.getFullYear();
+    var month = now.getMonth();
+    var monthName = now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+    // Prompt for which month
+    var monthStr = prompt('Generate paysheet for which month?\n\nEnter as MM/YYYY (e.g. ' + String(month + 1).padStart(2, '0') + '/' + year + '):', String(month + 1).padStart(2, '0') + '/' + year);
+    if (!monthStr) return;
+
+    var parts = monthStr.split('/');
+    if (parts.length !== 2) { alert('Invalid format. Use MM/YYYY'); return; }
+    var selMonth = parseInt(parts[0]) - 1;
+    var selYear = parseInt(parts[1]);
+    if (isNaN(selMonth) || isNaN(selYear)) { alert('Invalid format.'); return; }
+
+    var monthStart = new Date(selYear, selMonth, 1);
+    var monthEnd = new Date(selYear, selMonth + 1, 0);
+    var startStr = monthStart.toISOString().split('T')[0];
+    var endStr = monthEnd.toISOString().split('T')[0];
+    var displayMonth = monthStart.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+    var subs = getData('subInvoices').filter(function(s) { return s.date >= startStr && s.date <= endStr; });
+
+    if (subs.length === 0) {
+        alert('No sub-contractor invoices found for ' + displayMonth);
+        return;
+    }
+
+    // Group by contractor
+    var grouped = {};
+    subs.forEach(function(s) {
+        var key = s.name.toLowerCase().trim();
+        if (!grouped[key]) grouped[key] = { name: s.name, invoices: [], totalNet: 0, totalVat: 0, totalCis: 0, totalPayable: 0, totalGross: 0 };
+        grouped[key].invoices.push(s);
+        grouped[key].totalNet += s.netAmount || 0;
+        grouped[key].totalVat += s.vat || 0;
+        grouped[key].totalCis += s.cisAmount || 0;
+        grouped[key].totalPayable += s.payable || 0;
+        grouped[key].totalGross += s.total || 0;
+    });
+
+    var contractors = Object.values(grouped).sort(function(a, b) { return a.name.localeCompare(b.name); });
+    var allSubcons = getData('subcontractors');
+    var settings = getSettings();
+
+    var grandNet = 0, grandVat = 0, grandCis = 0, grandPayable = 0;
+    contractors.forEach(function(c) { grandNet += c.totalNet; grandVat += c.totalVat; grandCis += c.totalCis; grandPayable += c.totalPayable; });
+
+    // Build the monthly paysheet
+    var h = [];
+    h.push('<div class="card">');
+    h.push('<div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">');
+    h.push('<span>Monthly Pay Sheet — ' + esc(displayMonth) + '</span>');
+    h.push('<div style="display:flex;gap:8px;">');
+    h.push('<button class="btn btn-secondary btn-sm" onclick="exportMonthlyPaysheet()">Export CSV</button>');
+    h.push('<button class="btn btn-secondary btn-sm" onclick="printMonthlyPaysheet()">Print</button>');
+    h.push('<button class="btn btn-danger btn-sm" onclick="document.getElementById(\'monthly-paysheet-container\').style.display=\'none\'">Close</button>');
+    h.push('</div></div>');
+
+    // Summary
+    h.push('<div style="padding:16px 20px;display:flex;gap:20px;font-size:14px;border-bottom:1px solid var(--gray-200);background:var(--gray-50);">');
+    h.push('<div><strong>Contractors:</strong> ' + contractors.length + '</div>');
+    h.push('<div><strong>Invoices:</strong> ' + subs.length + '</div>');
+    h.push('<div><strong>Net:</strong> ' + fmtGBP(grandNet) + '</div>');
+    h.push('<div><strong>CIS:</strong> <span style="color:var(--danger);">-' + fmtGBP(grandCis) + '</span></div>');
+    h.push('<div><strong>Total Payable:</strong> <span style="color:var(--success);font-weight:700;">' + fmtGBP(grandPayable) + '</span></div>');
+    h.push('</div>');
+
+    // Per contractor
+    contractors.forEach(function(c) {
+        var sc = allSubcons.find(function(sub) { return sub.name.toLowerCase().trim() === c.name.toLowerCase().trim(); });
+
+        h.push('<div style="border-bottom:2px solid var(--gray-200);padding:16px 20px;">');
+        h.push('<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">');
+        h.push('<div>');
+        h.push('<div style="font-weight:700;font-size:16px;">' + esc(c.name) + '</div>');
+        if (sc) {
+            var details = [];
+            if (sc.utr) details.push('UTR: ' + sc.utr);
+            if (sc.companyNum) details.push('Co: ' + sc.companyNum);
+            if (sc.vatNum) details.push('VAT: ' + sc.vatNum);
+            if (details.length) h.push('<div style="font-size:12px;color:var(--gray-500);">' + details.join(' | ') + '</div>');
+        }
+        h.push('</div>');
+
+        // Bank details
+        h.push('<div style="text-align:right;font-size:12px;">');
+        if (sc && (sc.bankName || sc.bankAccount)) {
+            if (sc.bankAccountName) h.push('<div><strong>' + esc(sc.bankAccountName) + '</strong></div>');
+            if (sc.bankName) h.push('<div>' + esc(sc.bankName) + '</div>');
+            if (sc.bankSort) h.push('<div>Sort: ' + esc(sc.bankSort) + '</div>');
+            if (sc.bankAccount) h.push('<div>Acc: ' + esc(sc.bankAccount) + '</div>');
+        }
+        h.push('</div></div>');
+
+        // Invoice detail table
+        h.push('<table style="width:100%;font-size:12px;border-collapse:collapse;">');
+        h.push('<thead><tr style="border-bottom:1px solid var(--gray-300);color:var(--gray-500);">');
+        h.push('<th style="text-align:left;padding:4px 8px;">Invoice #</th>');
+        h.push('<th style="text-align:left;padding:4px 8px;">Date</th>');
+        h.push('<th style="text-align:left;padding:4px 8px;">Description</th>');
+        h.push('<th style="text-align:right;padding:4px 8px;">Net</th>');
+        h.push('<th style="text-align:right;padding:4px 8px;">VAT</th>');
+        h.push('<th style="text-align:right;padding:4px 8px;">CIS</th>');
+        h.push('<th style="text-align:right;padding:4px 8px;">Payable</th>');
+        h.push('</tr></thead><tbody>');
+
+        c.invoices.forEach(function(inv) {
+            h.push('<tr style="border-bottom:1px solid var(--gray-100);">');
+            h.push('<td style="padding:4px 8px;">' + esc(inv.invoiceNum || '-') + '</td>');
+            h.push('<td style="padding:4px 8px;">' + formatDate(inv.date) + '</td>');
+            h.push('<td style="padding:4px 8px;">' + esc(inv.description || '-') + '</td>');
+            h.push('<td style="padding:4px 8px;text-align:right;">' + fmtGBP(inv.netAmount) + '</td>');
+            h.push('<td style="padding:4px 8px;text-align:right;">' + fmtGBP(inv.vat) + '</td>');
+            h.push('<td style="padding:4px 8px;text-align:right;color:var(--danger);">' + (inv.cisAmount > 0 ? '-' + fmtGBP(inv.cisAmount) : '-') + '</td>');
+            h.push('<td style="padding:4px 8px;text-align:right;font-weight:600;">' + fmtGBP(inv.payable) + '</td>');
+            h.push('</tr>');
+        });
+
+        // Contractor totals
+        h.push('<tr style="border-top:1px solid var(--gray-300);font-weight:700;">');
+        h.push('<td colspan="3" style="padding:6px 8px;text-align:right;">Totals</td>');
+        h.push('<td style="padding:6px 8px;text-align:right;">' + fmtGBP(c.totalNet) + '</td>');
+        h.push('<td style="padding:6px 8px;text-align:right;">' + fmtGBP(c.totalVat) + '</td>');
+        h.push('<td style="padding:6px 8px;text-align:right;color:var(--danger);">-' + fmtGBP(c.totalCis) + '</td>');
+        h.push('<td style="padding:6px 8px;text-align:right;color:var(--success);font-size:14px;">' + fmtGBP(c.totalPayable) + '</td>');
+        h.push('</tr></tbody></table></div>');
+    });
+
+    // Grand total footer
+    h.push('<div style="padding:16px 20px;background:var(--primary-light);display:flex;justify-content:space-between;align-items:center;">');
+    h.push('<div style="font-weight:700;font-size:16px;">Grand Total — ' + contractors.length + ' Contractors</div>');
+    h.push('<div style="text-align:right;">');
+    h.push('<div style="font-size:13px;">Net: ' + fmtGBP(grandNet) + ' | CIS: -' + fmtGBP(grandCis) + '</div>');
+    h.push('<div style="font-size:22px;font-weight:700;color:var(--primary);">Payable: ' + fmtGBP(grandPayable) + '</div>');
+    h.push('</div></div></div>');
+
+    // Store for export/print
+    window._monthlyPaysheetData = { month: displayMonth, startStr: startStr, endStr: endStr, contractors: contractors, grandNet: grandNet, grandVat: grandVat, grandCis: grandCis, grandPayable: grandPayable };
+
+    var container = document.getElementById('monthly-paysheet-container');
+    container.innerHTML = h.join('');
+    container.style.display = 'block';
+    container.scrollIntoView({ behavior: 'smooth' });
+}
+
+function exportMonthlyPaysheet() {
+    var d = window._monthlyPaysheetData;
+    if (!d) return;
+    var allSubcons = getData('subcontractors');
+
+    var headers = ['Sub-Contractor', 'UTR', 'Bank', 'Sort Code', 'Account No', 'Invoice #', 'Date', 'Description', 'Net', 'VAT', 'CIS Deducted', 'Payable'];
+    var rows = [];
+
+    d.contractors.forEach(function(c) {
+        var sc = allSubcons.find(function(sub) { return sub.name.toLowerCase().trim() === c.name.toLowerCase().trim(); });
+        c.invoices.forEach(function(inv) {
+            rows.push([
+                c.name,
+                sc ? sc.utr || '' : '',
+                sc ? sc.bankName || '' : '',
+                sc ? sc.bankSort || '' : '',
+                sc ? sc.bankAccount || '' : '',
+                inv.invoiceNum || '',
+                inv.date,
+                inv.description || '',
+                inv.netAmount.toFixed(2),
+                inv.vat.toFixed(2),
+                inv.cisAmount.toFixed(2),
+                inv.payable.toFixed(2)
+            ]);
+        });
+    });
+
+    var csv = [headers].concat(rows).map(function(r) {
+        return r.map(function(c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+    }).join('\n');
+
+    var blob = new Blob([csv], { type: 'text/csv' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'monthly_paysheet_' + d.startStr.substring(0, 7) + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function printMonthlyPaysheet() {
+    var container = document.getElementById('monthly-paysheet-container');
+    if (!container) return;
+    var w = window.open();
+    var s = getSettings();
+    w.document.write('<html><head><title>Monthly Pay Sheet</title><style>body{font-family:-apple-system,sans-serif;padding:20px;font-size:13px;}table{width:100%;border-collapse:collapse;}th,td{padding:4px 8px;text-align:left;border-bottom:1px solid #ddd;}th{border-bottom:2px solid #999;color:#666;}h1{font-size:18px;margin-bottom:4px;}h2{font-size:14px;margin:16px 0 8px;}@media print{.no-print{display:none;}}</style></head><body>');
+    if (s.companyName) w.document.write('<h1>' + s.companyName + '</h1>');
+    w.document.write(container.innerHTML.replace(/class="[^"]*"/g, '').replace(/onclick="[^"]*"/g, '').replace(/<button[^>]*>.*?<\/button>/g, ''));
+    w.document.write('</body></html>');
+    w.document.close();
+    w.print();
 }
 
 // ========== SUB-CONTRACTORS ==========
