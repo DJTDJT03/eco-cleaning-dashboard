@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Eco Cleaning Systems - Dashboard</title>
     <link rel="icon" type="image/png" href="logo.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#2D6A4F">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Eco CS">
+    <link rel="apple-touch-icon" href="/logo.png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -1307,6 +1314,28 @@
 <div id="mobile-backdrop" onclick="toggleMobileMenu(false)"></div>
 <div id="sync-status" style="position:fixed;bottom:12px;right:12px;z-index:9999;background:rgba(0,0,0,0.75);color:#fff;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:600;pointer-events:none;font-family:system-ui,-apple-system,sans-serif;">Loading...</div>
 <script>
+// PWA: install service worker
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js').catch(function(err) { console.warn('SW register failed', err); });
+    });
+}
+
+// PWA: capture install prompt so we can offer it from Settings later
+window._deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    window._deferredInstallPrompt = e;
+    var btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.style.display = '';
+});
+window.promptPWAInstall = function() {
+    var p = window._deferredInstallPrompt;
+    if (!p) { alert('Install not available yet. On iPhone use Safari \u2192 Share \u2192 Add to Home Screen.'); return; }
+    p.prompt();
+    p.userChoice.finally(function(){ window._deferredInstallPrompt = null; });
+};
+
 function toggleMobileMenu(force) {
     var sb = document.querySelector('.sidebar');
     var bd = document.getElementById('mobile-backdrop');
@@ -1436,6 +1465,19 @@ function toggleMobileMenu(force) {
             <div class="stat-card">
                 <div class="label">Weekly Bookings</div>
                 <div class="value" id="stat-weekly-bookings">0</div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Analytics</span>
+                <button class="btn btn-secondary btn-sm" onclick="runManualBackup()">Backup Now</button>
+            </div>
+            <div style="padding:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px;">
+                <div><div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:8px;">REVENUE (LAST 12 MONTHS)</div><div style="position:relative;height:220px;"><canvas id="chart-revenue"></canvas></div></div>
+                <div><div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:8px;">INVOICE STATUS</div><div style="position:relative;height:220px;"><canvas id="chart-invoice-status"></canvas></div></div>
+                <div><div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:8px;">TENDER PIPELINE</div><div style="position:relative;height:220px;"><canvas id="chart-tender-status"></canvas></div></div>
+                <div><div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:8px;">TOP 5 CLIENTS BY REVENUE</div><div style="position:relative;height:220px;"><canvas id="chart-top-clients"></canvas></div></div>
             </div>
         </div>
 
@@ -4170,6 +4212,142 @@ function renderInvoices(filter) {
     renderPurchaseOrders();
 }
 
+// ========== ANALYTICS CHARTS ==========
+window._charts = window._charts || {};
+function _destroyChart(id) {
+    if (window._charts[id]) { try { window._charts[id].destroy(); } catch(e) {} window._charts[id] = null; }
+}
+function _makeChart(id, cfg) {
+    if (!window.Chart) return;
+    var c = document.getElementById(id);
+    if (!c) return;
+    _destroyChart(id);
+    window._charts[id] = new Chart(c, cfg);
+}
+function renderAnalyticsCharts() {
+    try {
+        if (!window.Chart) return;
+        var invoices = getData('invoices').filter(function(i) { return !i.isQuote; });
+        var tenders = getData('tenders');
+        var clients = getData('clients');
+        var PRIMARY = '#2D6A4F', ACCENT = '#B5A16A';
+        var PALETTE = ['#2D6A4F','#52B788','#B5A16A','#E67E22','#C1121F','#6C757D','#1B4332','#F4A261'];
+
+        // 1. Revenue last 12 months (paid only, net of credit notes)
+        var months = [];
+        var now = new Date();
+        for (var i = 11; i >= 0; i--) {
+            var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            months.push({ key: d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'), label: d.toLocaleDateString('en-GB',{month:'short',year:'2-digit'}), total: 0 });
+        }
+        var mMap = {}; months.forEach(function(m){ mMap[m.key] = m; });
+        invoices.filter(function(i){ return i.status === 'paid' && i.date; }).forEach(function(i) {
+            var d = new Date(i.date);
+            var k = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+            if (mMap[k]) mMap[k].total += (i.total || 0);
+        });
+        var creditNotes = getData('creditNotes') || [];
+        creditNotes.forEach(function(cn) {
+            if (!cn.date) return;
+            var d = new Date(cn.date);
+            var k = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+            if (mMap[k]) mMap[k].total -= (cn.amount || 0);
+        });
+        _makeChart('chart-revenue', {
+            type: 'line',
+            data: { labels: months.map(function(m){return m.label;}), datasets: [{ label: 'Revenue', data: months.map(function(m){return m.total;}), borderColor: PRIMARY, backgroundColor: 'rgba(45,106,79,0.12)', fill: true, tension: 0.3, pointRadius: 3 }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: function(v){ return '\u00A3' + v.toLocaleString(); } } } } }
+        });
+
+        // 2. Invoice status breakdown
+        var statusCounts = { draft: 0, sent: 0, paid: 0, overdue: 0 };
+        invoices.forEach(function(i) { if (statusCounts[i.status] !== undefined) statusCounts[i.status]++; });
+        _makeChart('chart-invoice-status', {
+            type: 'doughnut',
+            data: { labels: ['Draft','Sent','Paid','Overdue'], datasets: [{ data: [statusCounts.draft, statusCounts.sent, statusCounts.paid, statusCounts.overdue], backgroundColor: ['#6C757D','#E67E22','#52B788','#C1121F'], borderWidth: 2, borderColor: '#fff' }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        });
+
+        // 3. Tender pipeline by status
+        var tStatus = {};
+        tenders.forEach(function(t) {
+            var s = (t.status || 'pending');
+            tStatus[s] = (tStatus[s] || 0) + 1;
+        });
+        var tLabels = Object.keys(tStatus);
+        _makeChart('chart-tender-status', {
+            type: 'bar',
+            data: { labels: tLabels, datasets: [{ label: 'Tenders', data: tLabels.map(function(k){return tStatus[k];}), backgroundColor: tLabels.map(function(_,i){return PALETTE[i%PALETTE.length];}) }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        });
+
+        // 4. Top 5 clients by invoiced revenue (paid + sent)
+        var clMap = {};
+        clients.forEach(function(c){ clMap[c.id] = { name: c.name, total: 0 }; });
+        invoices.filter(function(i){ return i.status === 'paid' || i.status === 'sent'; }).forEach(function(i) {
+            if (clMap[i.clientId]) clMap[i.clientId].total += (i.total || 0);
+        });
+        var top = Object.values(clMap).filter(function(c){return c.total > 0;}).sort(function(a,b){return b.total-a.total;}).slice(0,5);
+        _makeChart('chart-top-clients', {
+            type: 'bar',
+            data: { labels: top.map(function(c){return c.name;}), datasets: [{ label: 'Revenue', data: top.map(function(c){return c.total;}), backgroundColor: ACCENT }] },
+            options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { callback: function(v){ return '\u00A3' + v.toLocaleString(); } } } } }
+        });
+    } catch(e) { console.error('charts', e); }
+}
+
+// ========== AUTO-BACKUP ==========
+function _todayStr() { return new Date().toISOString().slice(0,10); }
+function _snapshotAllData() {
+    var snap = {};
+    for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('cb_') === 0 && k !== 'cb_welcomed' && k.indexOf('cb__backup_') !== 0) {
+            snap[k] = localStorage.getItem(k);
+        }
+    }
+    return snap;
+}
+async function runManualBackup() {
+    try {
+        var snap = _snapshotAllData();
+        var row = { key: 'cb__backup_' + _todayStr() + '_' + Date.now(), value: { createdAt: new Date().toISOString(), data: snap }, updated_at: new Date().toISOString() };
+        if (window._sb) {
+            var res = await window._sb.from('app_data').upsert([row], { onConflict: 'key' });
+            if (res.error) throw res.error;
+        }
+        localStorage.setItem('cb__lastBackup', _todayStr());
+        alert('Backup saved.');
+        pruneOldBackups();
+    } catch(e) { alert('Backup failed: ' + e.message); }
+}
+async function maybeRunAutoBackup() {
+    try {
+        var last = localStorage.getItem('cb__lastBackup');
+        if (last === _todayStr()) return;
+        var snap = _snapshotAllData();
+        if (Object.keys(snap).length === 0) return;
+        var row = { key: 'cb__backup_' + _todayStr(), value: { createdAt: new Date().toISOString(), data: snap }, updated_at: new Date().toISOString() };
+        if (window._sb) {
+            var res = await window._sb.from('app_data').upsert([row], { onConflict: 'key' });
+            if (res.error) throw res.error;
+        }
+        localStorage.setItem('cb__lastBackup', _todayStr());
+        pruneOldBackups();
+    } catch(e) { console.warn('Auto-backup skipped:', e.message); }
+}
+async function pruneOldBackups() {
+    try {
+        if (!window._sb) return;
+        var res = await window._sb.from('app_data').select('key, updated_at').like('key', 'cb__backup_%').order('updated_at', { ascending: false });
+        if (res.error || !res.data) return;
+        var toDelete = res.data.slice(30).map(function(r){ return r.key; });
+        if (toDelete.length) {
+            await window._sb.from('app_data').delete().in('key', toDelete);
+        }
+    } catch(e) { console.warn('Prune failed', e); }
+}
+
 function toggleAllInvoiceSelect(checked) {
     document.querySelectorAll('.inv-select-cb').forEach(function(cb) { cb.checked = checked; });
     updateBulkDeleteBtn();
@@ -4232,6 +4410,12 @@ function refreshDashboard() {
 
     // Pipeline
     renderDashboardPipeline();
+
+    // Analytics charts
+    renderAnalyticsCharts();
+
+    // Daily auto-backup check
+    maybeRunAutoBackup();
 
     // Activity log
     renderActivityLog();

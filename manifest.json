@@ -1,0 +1,14 @@
+{
+  "name": "Eco Cleaning Systems",
+  "short_name": "Eco CS",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#2D6A4F",
+  "theme_color": "#2D6A4F",
+  "description": "Site & Invoicing Management System",
+  "icons": [
+    { "src": "/logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
