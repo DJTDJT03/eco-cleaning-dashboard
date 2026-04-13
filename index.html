@@ -1212,6 +1212,7 @@
     </style>
 </head>
 <body>
+<div id="sync-status" style="position:fixed;bottom:12px;right:12px;z-index:9999;background:rgba(0,0,0,0.75);color:#fff;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:600;pointer-events:none;font-family:system-ui,-apple-system,sans-serif;">Loading...</div>
 
 <!-- Sidebar -->
 <nav class="sidebar">
@@ -2996,7 +2997,120 @@ if (window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+// ========== SUPABASE SYNC LAYER ==========
+window.SUPABASE_URL = 'https://qlxcvongpyuyabzkknui.supabase.co';
+window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFseGN2b25ncHl1eWFiemtrbnVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5ODA4MTAsImV4cCI6MjA5MDU1NjgxMH0.g4dN7xbn_I5tbyyJ5VsHx_TfRAD_ay85_kZX3RGBup8';
+window._sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+window._origSetItem = localStorage.setItem.bind(localStorage);
+window._origRemoveItem = localStorage.removeItem.bind(localStorage);
+window._origGetItem = localStorage.getItem.bind(localStorage);
+
+var _syncQueue = {};
+var _syncTimer = null;
+
+function _setSyncStatus(txt) {
+    var el = document.getElementById('sync-status');
+    if (el) el.textContent = txt;
+}
+
+function _scheduleSync(key, valueStr) {
+    _syncQueue[key] = valueStr;
+    _setSyncStatus('Saving...');
+    if (_syncTimer) clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(_flushSync, 250);
+}
+
+async function _flushSync() {
+    _syncTimer = null;
+    var keys = Object.keys(_syncQueue);
+    if (keys.length === 0) return;
+    var rows = keys.map(function(k) {
+        var v;
+        try { v = JSON.parse(_syncQueue[k]); } catch(e) { v = _syncQueue[k]; }
+        return { key: k, value: v, updated_at: new Date().toISOString() };
+    });
+    _syncQueue = {};
+    try {
+        var res = await window._sb.from('app_data').upsert(rows, { onConflict: 'key' });
+        if (res.error) throw res.error;
+        _setSyncStatus('Synced \u2714');
+    } catch(e) {
+        console.error('Sync failed', e);
+        _setSyncStatus('Offline \u26A0');
+    }
+}
+
+localStorage.setItem = function(k, v) {
+    window._origSetItem(k, v);
+    if (typeof k === 'string' && k.indexOf('cb_') === 0 && k !== 'cb_welcomed') {
+        _scheduleSync(k, v);
+    }
+};
+localStorage.removeItem = function(k) {
+    window._origRemoveItem(k);
+    if (typeof k === 'string' && k.indexOf('cb_') === 0 && k !== 'cb_welcomed') {
+        window._sb.from('app_data').delete().eq('key', k).then(function(){}, function(e){ console.error('delete sync', e); });
+    }
+};
+
+async function _initSync() {
+    try {
+        _setSyncStatus('Loading...');
+        var res = await window._sb.from('app_data').select('*');
+        if (res.error) throw res.error;
+        (res.data || []).forEach(function(row) {
+            try { window._origSetItem(row.key, JSON.stringify(row.value)); } catch(e) {}
+        });
+        _setSyncStatus('Synced \u2714');
+
+        window._sb.channel('app_data_sync').on('postgres_changes', {
+            event: '*', schema: 'public', table: 'app_data'
+        }, function(payload) {
+            try {
+                var row = payload.new || payload.old;
+                if (!row || !row.key) return;
+                if (payload.eventType === 'DELETE') {
+                    window._origRemoveItem(row.key);
+                } else {
+                    window._origSetItem(row.key, JSON.stringify(row.value));
+                }
+                if (typeof window.refreshCurrentSection === 'function') {
+                    window.refreshCurrentSection();
+                }
+            } catch(e) { console.error('realtime apply', e); }
+        }).subscribe();
+    } catch(e) {
+        console.error('Initial sync failed, using local only', e);
+        _setSyncStatus('Offline \u26A0');
+    }
+}
+
+window._syncReady = _initSync();
+
+window.refreshCurrentSection = function() {
+    var name = window._currentSection;
+    if (!name) return;
+    try {
+        if (name === 'dashboard') refreshDashboard();
+        else if (name === 'clients') renderClients();
+        else if (name === 'jobs') renderJobs();
+        else if (name === 'invoices') renderInvoices();
+        else if (name === 'schedule') renderSchedule();
+        else if (name === 'tenders') renderTenders();
+        else if (name === 'reports') renderReports();
+        else if (name === 'paysheet') renderPaysheet();
+        else if (name === 'staff') renderStaff();
+        else if (name === 'subcontractors') renderSubcontractors();
+        else if (name === 'trades') renderTrades();
+        else if (name === 'calendar') renderCalendar();
+        else if (name === 'mileage') renderMileage();
+        else if (name === 'settings') loadSettings();
+        if (typeof updateNavBadges === 'function') updateNavBadges();
+    } catch(e) { console.error('refresh section', e); }
+};
+
 // ========== DATA LAYER ==========
 function getData(key) {
     return JSON.parse(localStorage.getItem('cb_' + key) || '[]');
@@ -3014,6 +3128,7 @@ function generateId() {
 var NAV_SECTIONS = ['dashboard', 'clients', 'jobs', 'invoices', 'schedule', 'tenders', 'reports', 'calendar', 'mileage', 'paysheet', 'staff', 'subcontractors', 'trades', 'settings'];
 
 function showSection(name) {
+    window._currentSection = name;
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     document.getElementById('section-' + name).classList.add('active');
@@ -4808,6 +4923,23 @@ function markPlotCleanInvoiced(tenderId, plotNum, cleanType, invoiceRef) {
 function unmarkPlotCleanInvoiced(tenderId, plotNum, cleanType) {
     const data = getTenderInvData(tenderId);
     if (!data.invoiced) return;
+    var entry = data.invoiced[plotNum + '_' + cleanType];
+    var ref = entry && typeof entry === 'object' ? entry.ref : (typeof entry === 'string' ? entry : '');
+
+    if (ref) {
+        var invoices = getData('invoices');
+        var inv = invoices.find(function(x) { return x.number === ref; });
+        if (inv && inv.status === 'draft' && Array.isArray(inv.items)) {
+            var descPrefix = (CLEAN_LABELS[cleanType] || cleanType) + ' \u2014 Plot ' + plotNum + ' (';
+            var idx = inv.items.findIndex(function(it) { return (it.desc || '').indexOf(descPrefix) === 0; });
+            if (idx !== -1) {
+                inv.items.splice(idx, 1);
+                inv.total = inv.items.reduce(function(s, it) { return s + (it.qty * it.rate); }, 0);
+                setData('invoices', invoices);
+            }
+        }
+    }
+
     delete data.invoiced[plotNum + '_' + cleanType];
     setTenderInvData(tenderId, data);
 }
@@ -11094,20 +11226,23 @@ function showStaffInductions(staffId) {
     document.body.appendChild(modal);
 }
 
-// Init
-try {
-    refreshDashboard();
-    renderThisWeekSummary();
-    initTenderDropZone();
-    initSubInvDropZone();
-    initSubconInvoiceDrop();
-    initCertDropZone();
-    updateAlertBadge();
-    updateNavBadges();
-    checkWelcome();
-} catch(e) {
-    document.body.innerHTML = '<div style="padding:40px;color:red;font-size:16px;"><h2>Startup Error</h2><p>' + e.message + '</p><pre>' + e.stack + '</pre></div>';
-}
+// Init — wait for Supabase sync to load remote data, then boot the app
+(window._syncReady || Promise.resolve()).then(function() {
+    try {
+        window._currentSection = 'dashboard';
+        refreshDashboard();
+        renderThisWeekSummary();
+        initTenderDropZone();
+        initSubInvDropZone();
+        initSubconInvoiceDrop();
+        initCertDropZone();
+        updateAlertBadge();
+        updateNavBadges();
+        checkWelcome();
+    } catch(e) {
+        document.body.innerHTML = '<div style="padding:40px;color:red;font-size:16px;"><h2>Startup Error</h2><p>' + e.message + '</p><pre>' + e.stack + '</pre></div>';
+    }
+});
 </script>
 </body>
 </html>
