@@ -3234,6 +3234,48 @@ async function _initSync() {
 
 window._syncReady = _initSync();
 
+// ========== FILE STORAGE ==========
+// Any call to FileReader.readAsDataURL() uploads the file to Supabase Storage
+// and returns a public URL via the same onload callback - drop-in replacement
+// for every existing drop zone in the app. Old base64 records still render since
+// <img src> and <a href> accept both data: and https: URLs.
+window.uploadBlobToStorage = async function(blob, hintName) {
+    var name = hintName || blob.name || ('file_' + Date.now());
+    var ext = (name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
+    var day = new Date().toISOString().slice(0, 10);
+    var path = 'uploads/' + day + '/' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + (ext ? '.' + ext : '');
+    var res = await window._sb.storage.from('files').upload(path, blob, {
+        contentType: blob.type || 'application/octet-stream',
+        upsert: false
+    });
+    if (res.error) throw res.error;
+    var pub = window._sb.storage.from('files').getPublicUrl(path);
+    return { url: pub.data.publicUrl, path: path };
+};
+
+(function() {
+    var origReadAsDataURL = FileReader.prototype.readAsDataURL;
+    FileReader.prototype.readAsDataURL = function(blob) {
+        var reader = this;
+        if (!window._sb || !blob) return origReadAsDataURL.call(this, blob);
+        var name = blob.name || ('file_' + Date.now());
+        window.uploadBlobToStorage(blob, name).then(function(res) {
+            try {
+                Object.defineProperty(reader, 'result', { value: res.url, writable: true, configurable: true });
+            } catch(e) { reader.result = res.url; }
+            try {
+                Object.defineProperty(reader, 'readyState', { value: 2, writable: true, configurable: true });
+            } catch(e) {}
+            var evt = { target: reader };
+            if (typeof reader.onload === 'function') reader.onload(evt);
+            if (typeof reader.onloadend === 'function') reader.onloadend(evt);
+        }).catch(function(err) {
+            console.warn('Storage upload failed, falling back to base64:', err);
+            origReadAsDataURL.call(reader, blob);
+        });
+    };
+})();
+
 window.refreshCurrentSection = function() {
     var name = window._currentSection;
     if (!name) return;

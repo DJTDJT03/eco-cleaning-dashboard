@@ -18,3 +18,20 @@ create policy "auth full access" on public.app_data
 
 -- Enable realtime so all clients see changes live
 alter publication supabase_realtime add table public.app_data;
+
+-- ========== FILE STORAGE ==========
+insert into storage.buckets (id, name, public)
+values ('files', 'files', true)
+on conflict (id) do nothing;
+
+drop policy if exists "anon upload files" on storage.objects;
+create policy "anon upload files" on storage.objects for insert to anon with check (bucket_id = 'files');
+
+drop policy if exists "anon read files" on storage.objects;
+create policy "anon read files" on storage.objects for select to anon using (bucket_id = 'files');
+
+drop policy if exists "anon update files" on storage.objects;
+create policy "anon update files" on storage.objects for update to anon using (bucket_id = 'files');
+
+drop policy if exists "anon delete files" on storage.objects;
+create policy "anon delete files" on storage.objects for delete to anon using (bucket_id = 'files');
