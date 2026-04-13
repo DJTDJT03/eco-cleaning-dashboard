@@ -1201,18 +1201,121 @@
         .dispute-resolved { color:#40916C; }
         .dispute-closed { color:var(--gray-500); }
 
-        @media (max-width: 768px) {
-            .sidebar { width: 60px; padding: 16px 0; }
-            .sidebar .logo span, .nav-section-label, .nav-item span { display: none; }
-            .nav-item { justify-content: center; padding: 12px; }
-            .main { margin-left: 60px; padding: 20px; }
-            .form-row { grid-template-columns: 1fr; }
-            .search-bar { width: 150px; }
+        #mobile-menu-btn { display: none; }
+        #mobile-backdrop { display: none; }
+
+        @media (max-width: 900px) {
+            html, body { overflow-x: hidden; max-width: 100vw; }
+
+            /* Sidebar becomes a slide-in drawer */
+            .sidebar {
+                width: 260px;
+                transform: translateX(-100%);
+                transition: transform 0.25s ease;
+                position: fixed;
+                top: 0; left: 0;
+                height: 100vh;
+                z-index: 1000;
+                padding: 16px 0;
+                overflow-y: auto;
+            }
+            .sidebar.open { transform: translateX(0); }
+
+            /* Main content full width on mobile */
+            .main {
+                margin-left: 0 !important;
+                padding: 64px 12px 20px;
+                max-width: 100vw;
+                overflow-x: hidden;
+            }
+
+            /* Hamburger */
+            #mobile-menu-btn {
+                display: flex;
+                position: fixed; top: 10px; left: 10px;
+                z-index: 1001;
+                background: var(--primary, #2D6A4F); color: #fff;
+                border: none; width: 44px; height: 44px;
+                border-radius: 10px; font-size: 22px;
+                align-items: center; justify-content: center;
+                cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            }
+
+            /* Backdrop when drawer open */
+            #mobile-backdrop {
+                display: block;
+                position: fixed; inset: 0;
+                background: rgba(0,0,0,0.4);
+                z-index: 999;
+                opacity: 0; pointer-events: none;
+                transition: opacity 0.25s;
+            }
+            #mobile-backdrop.open { opacity: 1; pointer-events: auto; }
+
+            /* Tables scroll horizontally within their container instead of pushing the page */
+            .main table {
+                display: block;
+                width: 100%;
+                max-width: 100%;
+                overflow-x: auto;
+                white-space: nowrap;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            /* Forms and grids collapse to single column */
+            .form-row { grid-template-columns: 1fr !important; }
+            .search-bar { width: 100% !important; max-width: 100%; }
+
+            /* Page headers wrap instead of overflowing */
+            .page-header {
+                flex-wrap: wrap !important;
+                gap: 8px;
+                align-items: stretch !important;
+            }
+            .page-header h1, .page-header h2 { font-size: 18px !important; }
+
+            /* Modals fit the screen */
+            .modal {
+                width: calc(100vw - 20px) !important;
+                max-width: calc(100vw - 20px) !important;
+                margin: 10px auto !important;
+                max-height: 90vh;
+                overflow-y: auto;
+            }
+            .modal-body { padding: 16px !important; }
+
+            /* Smaller buttons on mobile */
+            .btn { font-size: 13px; padding: 8px 12px; }
+            .btn-sm { font-size: 11px; padding: 6px 10px; }
+
+            /* Stats/dashboard cards full width */
+            .stats-grid, .summary-grid, .grid-2, .grid-3, .grid-4 {
+                grid-template-columns: 1fr !important;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .main { padding: 60px 8px 16px; }
+            .main table th, .main table td { padding: 6px 8px; font-size: 12px; }
+            h1 { font-size: 18px; }
+            h2 { font-size: 15px; }
         }
     </style>
 </head>
 <body>
+<button id="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Menu">&#9776;</button>
+<div id="mobile-backdrop" onclick="toggleMobileMenu(false)"></div>
 <div id="sync-status" style="position:fixed;bottom:12px;right:12px;z-index:9999;background:rgba(0,0,0,0.75);color:#fff;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:600;pointer-events:none;font-family:system-ui,-apple-system,sans-serif;">Loading...</div>
+<script>
+function toggleMobileMenu(force) {
+    var sb = document.querySelector('.sidebar');
+    var bd = document.getElementById('mobile-backdrop');
+    if (!sb) return;
+    var open = typeof force === 'boolean' ? force : !sb.classList.contains('open');
+    sb.classList.toggle('open', open);
+    if (bd) bd.classList.toggle('open', open);
+}
+</script>
 
 <!-- Sidebar -->
 <nav class="sidebar">
@@ -3129,6 +3232,7 @@ var NAV_SECTIONS = ['dashboard', 'clients', 'jobs', 'invoices', 'schedule', 'ten
 
 function showSection(name) {
     window._currentSection = name;
+    if (window.innerWidth <= 900 && typeof toggleMobileMenu === 'function') toggleMobileMenu(false);
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     document.getElementById('section-' + name).classList.add('active');
