@@ -3210,20 +3210,32 @@ async function _initSync() {
         });
         _setSyncStatus('Synced \u2714');
 
+        var _refreshTimer = null;
+        function _scheduleRefresh() {
+            if (_refreshTimer) return;
+            _refreshTimer = setTimeout(function() {
+                _refreshTimer = null;
+                if (typeof window.refreshCurrentSection === 'function') window.refreshCurrentSection();
+            }, 400);
+        }
         window._sb.channel('app_data_sync').on('postgres_changes', {
             event: '*', schema: 'public', table: 'app_data'
         }, function(payload) {
             try {
                 var row = payload.new || payload.old;
                 if (!row || !row.key) return;
+                // Ignore internal/meta keys - don't trigger UI refresh
+                if (row.key.indexOf('cb__') === 0) return;
+                var newStr = payload.eventType === 'DELETE' ? null : JSON.stringify(row.value);
+                var curStr = window._origGetItem(row.key);
+                // Skip echoes of our own writes (value unchanged)
+                if (newStr === curStr) return;
                 if (payload.eventType === 'DELETE') {
                     window._origRemoveItem(row.key);
                 } else {
-                    window._origSetItem(row.key, JSON.stringify(row.value));
+                    window._origSetItem(row.key, newStr);
                 }
-                if (typeof window.refreshCurrentSection === 'function') {
-                    window.refreshCurrentSection();
-                }
+                _scheduleRefresh();
             } catch(e) { console.error('realtime apply', e); }
         }).subscribe();
     } catch(e) {
