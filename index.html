@@ -1182,6 +1182,10 @@
         .cal-cell.today { background:var(--primary-light); }
         .cal-cell.other-month { background:var(--gray-50); color:var(--gray-400); }
         .cal-cell .cal-day { font-weight:600; font-size:13px; margin-bottom:4px; }
+        .cal-add-btn { position:absolute; top:4px; right:4px; width:22px; height:22px; border-radius:50%; border:none; background:var(--primary); color:#fff; font-size:16px; line-height:1; cursor:pointer; opacity:0; transition:opacity 0.15s; padding:0; display:flex; align-items:center; justify-content:center; font-weight:700; }
+        .cal-cell:hover .cal-add-btn { opacity:0.85; }
+        .cal-add-btn:hover { opacity:1 !important; transform:scale(1.1); }
+        @media (hover: none) { .cal-add-btn { opacity:0.7; } }
         .cal-cell .cal-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin:1px; }
         .cal-header-cell { padding:8px; text-align:center; font-weight:600; font-size:12px; text-transform:uppercase; color:var(--gray-500); background:var(--gray-100); border:1px solid var(--gray-200); }
         .cal-event-item { padding:6px 10px; border-left:4px solid var(--gray-300); margin-bottom:6px; background:var(--gray-50); border-radius:0 4px 4px 0; font-size:13px; }
@@ -10638,8 +10642,9 @@ function renderCalendar() {
         var dateStr = calYear + '-' + String(calMonth + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
         var isToday = dateStr === todayStr;
         var dayEvents = events[dateStr] || [];
-        html += '<div class="cal-cell' + (isToday ? ' today' : '') + '" onclick="showCalDay(\'' + dateStr + '\')">';
+        html += '<div class="cal-cell' + (isToday ? ' today' : '') + '" style="position:relative;" onclick="showCalDay(\'' + dateStr + '\')">';
         html += '<div class="cal-day">' + d + '</div>';
+        html += '<button class="cal-add-btn" title="Add event on this day" onclick="event.stopPropagation();openCalendarEventModal(\'' + dateStr + '\')">+</button>';
         var dotColors = {};
         for (var ei = 0; ei < dayEvents.length && ei < 8; ei++) {
             dotColors[dayEvents[ei].color] = true;
