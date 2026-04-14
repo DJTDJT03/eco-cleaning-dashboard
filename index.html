@@ -1920,9 +1920,11 @@ function toggleMobileMenu(force) {
                 <span id="cal-month-label" style="font-weight:600;font-size:16px;min-width:160px;text-align:center;"></span>
                 <button class="btn btn-secondary btn-sm" onclick="changeCalMonth(1)">Next &rarr;</button>
                 <button class="btn btn-secondary btn-sm" onclick="goCalToday()">Today</button>
+                <button class="btn btn-primary btn-sm" onclick="openCalendarEventModal()">+ Add Event</button>
             </div>
         </div>
         <div style="margin-bottom:12px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px;">
+            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#E91E63;display:inline-block;"></span> Team Event</span>
             <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#2D6A4F;display:inline-block;"></span> Jobs</span>
             <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#B5A16A;display:inline-block;"></span> Bookings</span>
             <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:50%;background:#C1121F;display:inline-block;"></span> Invoice Due</span>
@@ -2954,6 +2956,48 @@ function toggleMobileMenu(force) {
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeModal('cert')">Cancel</button>
             <button class="btn btn-primary" onclick="saveCert()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Calendar Event Modal -->
+<div class="modal-overlay" id="modal-calendar-event">
+    <div class="modal" style="max-width:520px;">
+        <div class="modal-header">
+            <span id="calendar-event-title">Add Calendar Event</span>
+            <button class="modal-close" onclick="closeModal('calendar-event')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="calendar-event-id">
+            <div class="form-group">
+                <label>Title *</label>
+                <input type="text" id="calendar-event-title-input" placeholder="e.g. Team meeting, Site visit">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Date *</label>
+                    <input type="date" id="calendar-event-date">
+                </div>
+                <div class="form-group">
+                    <label>Time (optional)</label>
+                    <input type="time" id="calendar-event-time">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Created by (optional)</label>
+                <input type="text" id="calendar-event-author" placeholder="Your name">
+            </div>
+            <div class="form-group">
+                <label>Notes</label>
+                <textarea id="calendar-event-notes" rows="3" placeholder="Details, location, attendees..."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer" style="justify-content:space-between;">
+            <button class="btn btn-danger" id="calendar-event-delete-btn" onclick="deleteCalendarEvent()" style="display:none;">Delete</button>
+            <div style="display:flex;gap:8px;margin-left:auto;">
+                <button class="btn btn-secondary" onclick="closeModal('calendar-event')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveCalendarEvent()">Save</button>
+            </div>
         </div>
     </div>
 </div>
@@ -10079,65 +10123,46 @@ function exportInvoicesCSV() {
 
 // ========== FEATURE: Notification Badges ==========
 function updateNavBadges() {
-    // Clear existing badges
     var existing = document.querySelectorAll('.nav-badge');
     for (var e = 0; e < existing.length; e++) { existing[e].remove(); }
 
-    var navItems = document.querySelectorAll('.nav-item');
-    // navItems[0] is Search, then 1=Dashboard, 2=Clients, 3=Jobs, 4=Invoices, 5=Schedule, 6=Tenders, 7=Reports, 8=PaySheet, 9=Staff, 10=Sub-Contractors, 11=Settings
+    function findNavItem(section) {
+        var items = document.querySelectorAll('.nav-item');
+        for (var i = 0; i < items.length; i++) {
+            var oc = items[i].getAttribute('onclick') || '';
+            if (oc.indexOf("showSection('" + section + "')") !== -1) return items[i];
+        }
+        return null;
+    }
+    function addBadge(section, count, warn) {
+        if (!count) return;
+        var item = findNavItem(section);
+        if (!item) return;
+        var b = document.createElement('span');
+        b.className = 'nav-badge' + (warn ? ' warn' : '');
+        b.textContent = count;
+        item.appendChild(b);
+    }
 
-    // Invoices: count of overdue (index 4)
     var invoices = getData('invoices');
-    var overdueCount = 0;
-    for (var i = 0; i < invoices.length; i++) {
-        if (invoices[i].status === 'overdue') overdueCount++;
-    }
-    if (overdueCount > 0 && navItems[4]) {
-        var badge = document.createElement('span');
-        badge.className = 'nav-badge';
-        badge.textContent = overdueCount;
-        navItems[4].appendChild(badge);
-    }
+    var overdueCount = invoices.filter(function(i){ return i.status === 'overdue'; }).length;
+    addBadge('invoices', overdueCount, false);
 
-    // Pay Sheet: count of pending sub-invoices (index 8)
     var subInvoices = getData('subInvoices');
-    var pendingSubInv = 0;
-    for (var si = 0; si < subInvoices.length; si++) {
-        if (subInvoices[si].status === 'pending') pendingSubInv++;
-    }
-    if (pendingSubInv > 0 && navItems[8]) {
-        var badge2 = document.createElement('span');
-        badge2.className = 'nav-badge warn';
-        badge2.textContent = pendingSubInv;
-        navItems[8].appendChild(badge2);
-    }
+    var pendingSubInv = subInvoices.filter(function(s){ return s.status === 'pending'; }).length;
+    addBadge('paysheet', pendingSubInv, true);
 
-    // Sub-Contractors: count of expired certs (index 10)
-    var subCerts = getData('subconCerts');
     var today = new Date().toISOString().split('T')[0];
-    var expiredCerts = 0;
-    for (var sc = 0; sc < subCerts.length; sc++) {
-        if (subCerts[sc].expiryDate && subCerts[sc].expiryDate < today) expiredCerts++;
-    }
-    if (expiredCerts > 0 && navItems[10]) {
-        var badge3 = document.createElement('span');
-        badge3.className = 'nav-badge';
-        badge3.textContent = expiredCerts;
-        navItems[10].appendChild(badge3);
-    }
+    var subCerts = getData('subconCerts');
+    var expiredCerts = subCerts.filter(function(c){ return c.expiryDate && c.expiryDate < today; }).length;
+    addBadge('subcontractors', expiredCerts, false);
 
-    // Tenders: count of pending tenders (index 6)
     var tenders = getData('tenders');
-    var pendingTenders = 0;
-    for (var t = 0; t < tenders.length; t++) {
-        if (tenders[t].status === 'Submitted' || tenders[t].status === 'submitted' || tenders[t].status === 'pending') pendingTenders++;
-    }
-    if (pendingTenders > 0 && navItems[6]) {
-        var badge4 = document.createElement('span');
-        badge4.className = 'nav-badge warn';
-        badge4.textContent = pendingTenders;
-        navItems[6].appendChild(badge4);
-    }
+    var pendingTenders = tenders.filter(function(t){
+        var s = t.status || '';
+        return s === 'Submitted' || s === 'submitted' || s === 'pending';
+    }).length;
+    addBadge('tenders', pendingTenders, true);
 }
 
 // ========== FEATURE: Auto-Save Indicator ==========
@@ -10701,7 +10726,88 @@ function getCalendarEvents(year, month) {
         }
     }
 
+    // Team / manual calendar events
+    var manual = getData('calendarEvents');
+    for (var mi = 0; mi < manual.length; mi++) {
+        var ev = manual[mi];
+        if (!ev.date) continue;
+        var label = esc(ev.title || 'Event');
+        if (ev.time) label = ev.time + ' ' + label;
+        addEvent(ev.date, label, '#E91E63', 'Team Event');
+        if (events[ev.date]) {
+            var last = events[ev.date][events[ev.date].length - 1];
+            last.id = ev.id;
+            last.notes = ev.notes;
+            last.time = ev.time;
+            last.author = ev.author;
+        }
+    }
+
     return events;
+}
+
+// ========== CALENDAR EVENTS (manual/team) ==========
+function openCalendarEventModal(dateStr, eventId) {
+    document.getElementById('calendar-event-id').value = eventId || '';
+    document.getElementById('calendar-event-title').textContent = eventId ? 'Edit Calendar Event' : 'Add Calendar Event';
+    document.getElementById('calendar-event-delete-btn').style.display = eventId ? '' : 'none';
+
+    if (eventId) {
+        var ev = getData('calendarEvents').find(function(e) { return e.id === eventId; });
+        if (ev) {
+            document.getElementById('calendar-event-title-input').value = ev.title || '';
+            document.getElementById('calendar-event-date').value = ev.date || '';
+            document.getElementById('calendar-event-time').value = ev.time || '';
+            document.getElementById('calendar-event-author').value = ev.author || '';
+            document.getElementById('calendar-event-notes').value = ev.notes || '';
+        }
+    } else {
+        document.getElementById('calendar-event-title-input').value = '';
+        document.getElementById('calendar-event-date').value = dateStr || new Date().toISOString().slice(0,10);
+        document.getElementById('calendar-event-time').value = '';
+        document.getElementById('calendar-event-author').value = '';
+        document.getElementById('calendar-event-notes').value = '';
+    }
+    document.getElementById('modal-calendar-event').classList.add('active');
+}
+
+function saveCalendarEvent() {
+    var title = document.getElementById('calendar-event-title-input').value.trim();
+    var date = document.getElementById('calendar-event-date').value;
+    if (!title) { alert('Title is required'); return; }
+    if (!date) { alert('Date is required'); return; }
+    var id = document.getElementById('calendar-event-id').value;
+    var events = getData('calendarEvents');
+    var data = {
+        title: title,
+        date: date,
+        time: document.getElementById('calendar-event-time').value || '',
+        author: document.getElementById('calendar-event-author').value.trim(),
+        notes: document.getElementById('calendar-event-notes').value.trim(),
+        updatedAt: new Date().toISOString()
+    };
+    if (id) {
+        var idx = events.findIndex(function(e) { return e.id === id; });
+        if (idx !== -1) events[idx] = Object.assign(events[idx], data);
+    } else {
+        data.id = generateId();
+        data.createdAt = new Date().toISOString();
+        events.push(data);
+    }
+    setData('calendarEvents', events);
+    closeModal('calendar-event');
+    renderCalendar();
+    if (window._currentSection === 'calendar') showCalDay(date);
+}
+
+function deleteCalendarEvent() {
+    var id = document.getElementById('calendar-event-id').value;
+    if (!id) return;
+    if (!confirm('Delete this calendar event?')) return;
+    var events = getData('calendarEvents').filter(function(e) { return e.id !== id; });
+    setData('calendarEvents', events);
+    closeModal('calendar-event');
+    renderCalendar();
 }
 
 function showCalDay(dateStr) {
@@ -10710,16 +10816,23 @@ function showCalDay(dateStr) {
     var detail = document.getElementById('cal-day-detail');
     var title = document.getElementById('cal-day-title');
     var eventsDiv = document.getElementById('cal-day-events');
-    title.textContent = 'Events for ' + formatDate(dateStr);
+    title.innerHTML = 'Events for ' + formatDate(dateStr) +
+        ' <button class="btn btn-primary btn-sm" style="float:right;" onclick="openCalendarEventModal(\'' + dateStr + '\')">+ Add Event</button>';
     detail.style.display = 'block';
     if (dayEvents.length === 0) {
-        eventsDiv.innerHTML = '<p style="color:var(--gray-400);">No events on this date.</p>';
+        eventsDiv.innerHTML = '<p style="color:var(--gray-400);">No events on this date. Click "+ Add Event" to add one.</p>';
         return;
     }
     var html = '';
     for (var i = 0; i < dayEvents.length; i++) {
         var ev = dayEvents[i];
-        html += '<div class="cal-event-item" style="border-left-color:' + ev.color + ';"><strong>' + esc(ev.type) + ':</strong> ' + ev.title + '</div>';
+        var extras = '';
+        if (ev.type === 'Team Event') {
+            if (ev.notes) extras += '<div style="margin-top:4px;font-size:13px;color:var(--gray-600);">' + esc(ev.notes) + '</div>';
+            if (ev.author) extras += '<div style="margin-top:4px;font-size:11px;color:var(--gray-500);">Added by ' + esc(ev.author) + '</div>';
+            extras += '<div style="margin-top:6px;"><button class="btn btn-secondary btn-sm" onclick="openCalendarEventModal(\'' + dateStr + '\',\'' + ev.id + '\')">Edit</button></div>';
+        }
+        html += '<div class="cal-event-item" style="border-left-color:' + ev.color + ';"><strong>' + esc(ev.type) + ':</strong> ' + ev.title + extras + '</div>';
     }
     eventsDiv.innerHTML = html;
 }
