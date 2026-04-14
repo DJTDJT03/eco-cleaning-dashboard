@@ -1841,6 +1841,17 @@ function toggleMobileMenu(force) {
         </div>
 
         <div id="monthly-paysheet-container" style="display:none;margin-top:20px;"></div>
+
+        <div class="card" style="margin-top:20px;">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <span>Monthly Statements</span>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input type="month" id="statement-month" style="padding:6px 8px;border:1px solid var(--gray-300);border-radius:6px;">
+                    <button class="btn btn-accent btn-sm" onclick="generateMonthlyStatements()">Generate Statements</button>
+                </div>
+            </div>
+            <div id="statements-list" style="padding:0;"></div>
+        </div>
     </div>
 
     <!-- Sub-Contractors Section -->
@@ -6836,6 +6847,12 @@ function createBlankSubInv(fileName) {
 }
 
 function renderPaysheet() {
+    renderStatementsList();
+    var mInput = document.getElementById('statement-month');
+    if (mInput && !mInput.value) {
+        var d = new Date(); d.setMonth(d.getMonth() - 1);
+        mInput.value = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+    }
     const subs = getData('subInvoices');
     const weekEnd = getPayWeekEnd();
     const weekStartStr = paysheetWeekStart.toISOString().split('T')[0];
@@ -7266,6 +7283,226 @@ function exportMonthlyPaysheet() {
     a.download = 'monthly_paysheet_' + d.startStr.substring(0, 7) + '.csv';
     a.click();
     URL.revokeObjectURL(url);
+}
+
+// ========== MONTHLY STATEMENTS ==========
+function renderStatementsList() {
+    var container = document.getElementById('statements-list');
+    if (!container) return;
+    var stmts = getData('monthlyStatements').sort(function(a,b){ return (b.month||'').localeCompare(a.month||'') || a.subName.localeCompare(b.subName); });
+    if (stmts.length === 0) {
+        container.innerHTML = '<p style="padding:20px;color:var(--gray-400);text-align:center;">No statements generated yet. Pick a month above and click Generate.</p>';
+        return;
+    }
+    var html = '<table class="paysheet-table" style="width:100%;"><thead><tr><th>Month</th><th>Sub-Contractor</th><th>Invoices</th><th>Gross</th><th>CIS</th><th>Net Payable</th><th>Status</th><th style="min-width:260px;">Actions</th></tr></thead><tbody>';
+    stmts.forEach(function(s) {
+        var sent = s.sentAt ? 'Sent ' + formatDate(s.sentAt.slice(0,10)) : '<span style="color:var(--warning);">Not sent</span>';
+        html += '<tr>' +
+            '<td>' + esc(formatMonth(s.month)) + '</td>' +
+            '<td><strong>' + esc(s.subName) + '</strong>' + (s.subEmail ? '<div style="font-size:11px;color:var(--gray-500);">' + esc(s.subEmail) + '</div>' : '') + '</td>' +
+            '<td>' + (s.invoiceCount || 0) + '</td>' +
+            '<td>' + fmtGBP(s.gross) + '</td>' +
+            '<td>' + fmtGBP(s.cis) + '</td>' +
+            '<td><strong>' + fmtGBP(s.netPayable) + '</strong></td>' +
+            '<td>' + sent + '</td>' +
+            '<td style="white-space:nowrap;">' +
+                '<button class="btn btn-secondary btn-sm" onclick="viewStatement(\'' + s.id + '\')">View</button> ' +
+                '<button class="btn btn-primary btn-sm" onclick="emailStatement(\'' + s.id + '\')">Email</button> ' +
+                '<button class="btn btn-danger btn-sm" onclick="deleteStatement(\'' + s.id + '\')">Delete</button>' +
+            '</td></tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+function formatMonth(yyyymm) {
+    if (!yyyymm) return '';
+    var parts = yyyymm.split('-');
+    if (parts.length < 2) return yyyymm;
+    var names = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return names[parseInt(parts[1],10)-1] + ' ' + parts[0];
+}
+
+function buildStatementHTML(stmt, invoices, sub, settings) {
+    var s = settings || {};
+    var logoHtml = s.logoData ? '<img src="' + s.logoData + '" style="max-width:90px;max-height:90px;object-fit:contain;">' : '';
+    var rows = invoices.map(function(i) {
+        var desc = i.description || i.notes || i.ref || '';
+        var date = i.date ? formatDate(i.date) : '';
+        var num = i.invoiceNum || i.number || '';
+        var gross = (i.amount || 0);
+        return '<tr><td>' + esc(date) + '</td><td>' + esc(num) + '</td><td>' + esc(desc) + '</td><td style="text-align:right;">' + fmtGBP(gross) + '</td></tr>';
+    }).join('');
+
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Statement - ' + esc(stmt.subName) + ' - ' + esc(formatMonth(stmt.month)) + '</title>' +
+        '<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:40px;max-width:800px;margin:0 auto;color:#222;font-size:13px;line-height:1.5;}' +
+        'h1{color:#2D6A4F;margin:0 0 4px;font-size:22px;}' +
+        '.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2D6A4F;padding-bottom:16px;margin-bottom:20px;}' +
+        '.meta{text-align:right;font-size:12px;color:#555;}' +
+        '.parties{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0;}' +
+        '.parties .box{background:#f7f9f8;border-left:3px solid #2D6A4F;padding:12px 16px;}' +
+        '.parties .box h3{margin:0 0 6px;font-size:12px;color:#666;text-transform:uppercase;letter-spacing:0.04em;}' +
+        'table{width:100%;border-collapse:collapse;margin:16px 0;}' +
+        'th{background:#2D6A4F;color:#fff;padding:8px 10px;text-align:left;font-size:12px;}' +
+        'td{padding:8px 10px;border-bottom:1px solid #e5e5e5;font-size:13px;}' +
+        '.totals{margin-top:20px;margin-left:auto;width:360px;border-top:2px solid #2D6A4F;padding-top:10px;}' +
+        '.totals-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;}' +
+        '.totals-row.final{font-size:16px;font-weight:700;border-top:2px solid #2D6A4F;margin-top:6px;padding-top:10px;color:#2D6A4F;}' +
+        '.footer{margin-top:40px;padding-top:16px;border-top:1px solid #ddd;font-size:11px;color:#777;text-align:center;}' +
+        '@media print{body{padding:20px;}}' +
+        '</style></head><body>' +
+        '<div class="header"><div>' + logoHtml + '<h1>' + esc(s.companyName || 'Statement') + '</h1>' +
+        (s.address ? '<div style="font-size:12px;color:#666;">' + esc(s.address).replace(/\n/g,'<br>') + '</div>' : '') +
+        (s.vatNum ? '<div style="font-size:11px;color:#888;">VAT: ' + esc(s.vatNum) + '</div>' : '') +
+        '</div><div class="meta"><div style="font-size:22px;font-weight:700;color:#2D6A4F;">STATEMENT</div>' +
+        '<div>Period: ' + esc(formatMonth(stmt.month)) + '</div>' +
+        '<div>Generated: ' + formatDate(stmt.generatedAt.slice(0,10)) + '</div>' +
+        '<div>Ref: ' + esc(stmt.id.slice(-8).toUpperCase()) + '</div></div></div>' +
+        '<div class="parties"><div class="box"><h3>Sub-Contractor</h3>' +
+        '<div><strong>' + esc(stmt.subName) + '</strong></div>' +
+        (sub && sub.contact ? '<div>' + esc(sub.contact) + '</div>' : '') +
+        (sub && sub.email ? '<div>' + esc(sub.email) + '</div>' : '') +
+        (sub && sub.utr ? '<div style="font-size:11px;color:#666;">UTR: ' + esc(sub.utr) + '</div>' : '') +
+        '</div><div class="box"><h3>Payment Details</h3>' +
+        (sub && sub.bankName ? '<div>' + esc(sub.bankName) + '</div>' : '') +
+        (sub && sub.sortCode ? '<div>Sort: ' + esc(sub.sortCode) + '</div>' : '') +
+        (sub && sub.accountNum ? '<div>Acct: ' + esc(sub.accountNum) + '</div>' : '') +
+        '</div></div>' +
+        '<table><thead><tr><th>Date</th><th>Invoice #</th><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>' +
+        '<tbody>' + (rows || '<tr><td colspan="4" style="text-align:center;color:#888;">No invoices in this period.</td></tr>') + '</tbody></table>' +
+        '<div class="totals">' +
+        '<div class="totals-row"><span>Gross</span><span>' + fmtGBP(stmt.gross) + '</span></div>' +
+        (stmt.vat ? '<div class="totals-row"><span>VAT</span><span>' + fmtGBP(stmt.vat) + '</span></div>' : '') +
+        (stmt.cis ? '<div class="totals-row"><span>CIS Deduction</span><span>-' + fmtGBP(stmt.cis) + '</span></div>' : '') +
+        '<div class="totals-row final"><span>Net Payable</span><span>' + fmtGBP(stmt.netPayable) + '</span></div>' +
+        '</div>' +
+        '<div class="footer">Thank you for your work this month. For queries, contact ' + esc(s.companyName || 'us') + '.</div>' +
+        '</body></html>';
+    return html;
+}
+
+async function generateMonthlyStatements() {
+    var monthInput = document.getElementById('statement-month').value;
+    if (!monthInput) {
+        var d = new Date(); d.setMonth(d.getMonth() - 1);
+        monthInput = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+        document.getElementById('statement-month').value = monthInput;
+    }
+    var startStr = monthInput + '-01';
+    var endDate = new Date(monthInput + '-01'); endDate.setMonth(endDate.getMonth()+1); endDate.setDate(0);
+    var endStr = endDate.toISOString().slice(0,10);
+
+    var subInvoices = getData('subInvoices').filter(function(i) {
+        var dt = i.date || '';
+        return dt >= startStr && dt <= endStr;
+    });
+    if (subInvoices.length === 0) {
+        alert('No sub-contractor invoices found for ' + formatMonth(monthInput));
+        return;
+    }
+    var subs = getData('subcontractors');
+    var settings = getSettings();
+
+    // Group by sub name
+    var grouped = {};
+    subInvoices.forEach(function(inv) {
+        var key = (inv.name || 'Unknown').trim();
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(inv);
+    });
+
+    var statements = getData('monthlyStatements');
+    // Remove any existing statements for this month (regenerate cleanly)
+    statements = statements.filter(function(s) { return s.month !== monthInput; });
+
+    var created = 0;
+    var subNames = Object.keys(grouped);
+    for (var sn = 0; sn < subNames.length; sn++) {
+        var name = subNames[sn];
+        var invs = grouped[name];
+        var sub = subs.find(function(x) { return x.name && x.name.toLowerCase().trim() === name.toLowerCase().trim(); });
+        var gross = invs.reduce(function(s, i){ return s + (parseFloat(i.amount)||0); }, 0);
+        var vat = invs.reduce(function(s, i){ return s + (parseFloat(i.vat)||0); }, 0);
+        var cis = invs.reduce(function(s, i){ return s + (parseFloat(i.cis)||0); }, 0);
+        var netPayable = gross + vat - cis;
+
+        var stmt = {
+            id: generateId(),
+            month: monthInput,
+            subconId: sub ? sub.id : null,
+            subName: name,
+            subEmail: sub ? (sub.email || '') : '',
+            invoiceCount: invs.length,
+            invoiceIds: invs.map(function(i){return i.id;}),
+            gross: gross, vat: vat, cis: cis, netPayable: netPayable,
+            generatedAt: new Date().toISOString(),
+            sentAt: null,
+            storageUrl: null
+        };
+
+        try {
+            var htmlStr = buildStatementHTML(stmt, invs, sub, settings);
+            var blob = new Blob([htmlStr], { type: 'text/html' });
+            blob.name = 'statement_' + name.replace(/[^a-z0-9]/gi,'_') + '_' + monthInput + '.html';
+            if (window.uploadBlobToStorage) {
+                var up = await window.uploadBlobToStorage(blob, blob.name);
+                stmt.storageUrl = up.url;
+            }
+        } catch(e) { console.warn('Upload statement failed', e); }
+
+        statements.push(stmt);
+        created++;
+    }
+    setData('monthlyStatements', statements);
+    renderStatementsList();
+    alert('Generated ' + created + ' statement' + (created===1?'':'s') + ' for ' + formatMonth(monthInput) + '.');
+}
+
+function viewStatement(id) {
+    var stmt = getData('monthlyStatements').find(function(s) { return s.id === id; });
+    if (!stmt) return;
+    if (stmt.storageUrl) { window.open(stmt.storageUrl, '_blank'); return; }
+    // Fallback: rebuild live
+    var invs = getData('subInvoices').filter(function(i) { return (stmt.invoiceIds||[]).indexOf(i.id) !== -1; });
+    var sub = stmt.subconId ? getData('subcontractors').find(function(x){return x.id === stmt.subconId;}) : null;
+    var html = buildStatementHTML(stmt, invs, sub, getSettings());
+    var w = window.open();
+    w.document.write(html);
+    w.document.close();
+}
+
+function emailStatement(id) {
+    var stmt = getData('monthlyStatements').find(function(s) { return s.id === id; });
+    if (!stmt) return;
+    var to = stmt.subEmail;
+    if (!to) {
+        to = prompt('Email address for ' + stmt.subName + ':');
+        if (!to) return;
+    }
+    var settings = getSettings();
+    var periodLabel = formatMonth(stmt.month);
+    var subject = 'Statement for ' + periodLabel + ' - ' + (settings.companyName || '');
+    var body = 'Hi ' + stmt.subName + ',\n\n' +
+        'Please find your statement for ' + periodLabel + ' below.\n\n' +
+        'Total gross: ' + fmtGBP(stmt.gross) + '\n' +
+        (stmt.cis ? 'CIS deduction: ' + fmtGBP(stmt.cis) + '\n' : '') +
+        'Net payable: ' + fmtGBP(stmt.netPayable) + '\n\n' +
+        (stmt.storageUrl ? 'View full statement: ' + stmt.storageUrl + '\n\n' : '') +
+        'Any queries, please let us know.\n\n' +
+        'Thanks,\n' + (settings.companyName || '');
+    var url = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    window.location.href = url;
+    // Mark as sent
+    var stmts = getData('monthlyStatements');
+    var idx = stmts.findIndex(function(s){return s.id === id;});
+    if (idx !== -1) { stmts[idx].sentAt = new Date().toISOString(); setData('monthlyStatements', stmts); renderStatementsList(); }
+}
+
+function deleteStatement(id) {
+    if (!confirm('Delete this statement?')) return;
+    var stmts = getData('monthlyStatements').filter(function(s){return s.id !== id;});
+    setData('monthlyStatements', stmts);
+    renderStatementsList();
 }
 
 function printMonthlyPaysheet() {
