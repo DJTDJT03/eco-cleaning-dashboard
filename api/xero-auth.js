@@ -4,7 +4,7 @@ export default function handler(req, res) {
   if (!clientId || !redirectUri) {
     return res.status(500).send('Xero not configured on server');
   }
-  const scope = 'openid profile email';
+  const scope = 'openid profile email offline_access accounting.transactions accounting.contacts';
   const state = Math.random().toString(36).slice(2, 10);
   const url =
     'https://login.xero.com/identity/connect/authorize' +
