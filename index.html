@@ -2278,6 +2278,7 @@ function toggleMobileMenu(force) {
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-primary" id="xero-connect-btn" onclick="connectXero()">Connect to Xero</button>
                     <button class="btn btn-secondary" id="xero-sync-btn" onclick="syncFromXero()" style="display:none;">Sync Paid Status from Xero</button>
+                    <button class="btn btn-secondary" id="xero-import-contacts-btn" onclick="importContactsFromXero()" style="display:none;">Import Clients from Xero</button>
                     <button class="btn btn-danger btn-sm" id="xero-disconnect-btn" onclick="disconnectXero()" style="display:none;">Disconnect</button>
                 </div>
                 <div style="font-size:11px;color:var(--gray-500);margin-top:10px;">Once connected, push any draft invoice straight to Xero. "Sync Paid Status" pulls back any invoice marked paid/authorised in Xero in the last 12 months.</div>
@@ -6737,12 +6738,14 @@ async function refreshXeroStatus() {
             document.getElementById('xero-connect-btn').style.display = 'none';
             document.getElementById('xero-sync-btn').style.display = '';
             document.getElementById('xero-disconnect-btn').style.display = '';
+            var imp = document.getElementById('xero-import-contacts-btn'); if (imp) imp.style.display = '';
             window._xeroConnected = true;
         } else {
             statusEl.innerHTML = '<span style="color:var(--gray-500);">Not connected.</span>';
             document.getElementById('xero-connect-btn').style.display = '';
             document.getElementById('xero-sync-btn').style.display = 'none';
             document.getElementById('xero-disconnect-btn').style.display = 'none';
+            var imp2 = document.getElementById('xero-import-contacts-btn'); if (imp2) imp2.style.display = 'none';
             window._xeroConnected = false;
         }
     } catch(e) {
@@ -6786,6 +6789,71 @@ async function syncFromXero() {
         alert('Xero sync failed: ' + e.message);
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Sync Paid Status from Xero'; }
+    }
+}
+
+async function importContactsFromXero() {
+    var btn = document.getElementById('xero-import-contacts-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Importing...'; }
+    try {
+        var res = await fetch('/api/xero-contacts');
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Import failed');
+        var xeroContacts = data.contacts || [];
+        if (xeroContacts.length === 0) { alert('No customer contacts found in Xero.'); return; }
+
+        var clients = getData('clients');
+        var byXeroId = {};
+        var byName = {};
+        clients.forEach(function(c) {
+            if (c.xeroId) byXeroId[c.xeroId] = c;
+            if (c.name) byName[c.name.toLowerCase().trim()] = c;
+        });
+
+        var added = 0, updated = 0, skipped = 0;
+        xeroContacts.forEach(function(xc) {
+            var nameKey = (xc.name || '').toLowerCase().trim();
+            if (!nameKey) { skipped++; return; }
+            var existing = byXeroId[xc.xero_id] || byName[nameKey];
+            if (existing) {
+                // Update lightly - only fill blanks, don't overwrite user edits
+                var changed = false;
+                if (!existing.xeroId) { existing.xeroId = xc.xero_id; changed = true; }
+                if (!existing.headOffice && xc.address) { existing.headOffice = xc.address; changed = true; }
+                if (!existing.contacts || existing.contacts.length === 0) {
+                    if (xc.email || xc.phone || xc.first_name) {
+                        existing.contacts = [{
+                            name: (xc.first_name + ' ' + xc.last_name).trim() || xc.name,
+                            phone: xc.phone, email: xc.email, role: '', region: ''
+                        }];
+                        changed = true;
+                    }
+                }
+                if (changed) updated++;
+            } else {
+                clients.push({
+                    id: generateId(),
+                    name: xc.name,
+                    xeroId: xc.xero_id,
+                    headOffice: xc.address || '',
+                    notes: 'Imported from Xero ' + new Date().toISOString().slice(0,10),
+                    contacts: (xc.email || xc.phone) ? [{
+                        name: (xc.first_name + ' ' + xc.last_name).trim() || xc.name,
+                        phone: xc.phone, email: xc.email, role: '', region: ''
+                    }] : [],
+                    sites: [],
+                    createdAt: new Date().toISOString()
+                });
+                added++;
+            }
+        });
+        setData('clients', clients);
+        alert('Xero import complete.\n\nAdded: ' + added + '\nUpdated: ' + updated + '\nSkipped: ' + skipped);
+        if (typeof renderClients === 'function') renderClients();
+    } catch(e) {
+        alert('Import failed: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Import Clients from Xero'; }
     }
 }
 
