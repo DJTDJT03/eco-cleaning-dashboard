@@ -4164,6 +4164,57 @@ let expandedClientId = null;
 function toggleClientExpand(id) {
     expandedClientId = expandedClientId === id ? null : id;
     renderClients(document.querySelector('#section-clients .search-bar')?.value || '');
+    setTimeout(wireClientSiteDropZones, 50);
+}
+
+function wireClientSiteDropZones() {
+    document.querySelectorAll('.client-site-drop').forEach(function(zone) {
+        if (zone.__wired) return;
+        zone.__wired = true;
+        var clientId = zone.getAttribute('data-client-id');
+        zone.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            var input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.xlsx,.xls,.csv';
+            input.onchange = function() {
+                if (input.files[0]) processClientSiteFile(input.files[0], clientId);
+            };
+            input.click();
+        });
+        zone.addEventListener('dragover', function(e) { e.preventDefault(); e.stopPropagation(); zone.style.background = 'var(--primary-light)'; });
+        zone.addEventListener('dragleave', function(e) { e.preventDefault(); e.stopPropagation(); zone.style.background = 'var(--gray-50)'; });
+        zone.addEventListener('drop', function(e) {
+            e.preventDefault(); e.stopPropagation();
+            zone.style.background = 'var(--gray-50)';
+            var file = e.dataTransfer.files[0];
+            if (file) processClientSiteFile(file, clientId);
+        });
+    });
+}
+
+function processClientSiteFile(file, clientId) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            var data = new Uint8Array(e.target.result);
+            var wb = XLSX.read(data, { type: 'array' });
+            var sheet = wb.Sheets[wb.SheetNames[0]];
+            var rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+            var tender = parseTenderData(rows, file.name);
+            if (!tender) return;
+            tender.clientId = clientId;
+            tender.status = 'won';
+            var tenders = getData('tenders');
+            tenders.push(tender);
+            setData('tenders', tenders);
+            renderClients(document.querySelector('#section-clients .search-bar')?.value || '');
+            alert('Live site added: ' + tender.name + ' (' + tender.plots.length + ' plots, our total ' + fmtGBP(tender.grandTotal) + ', sub total ' + fmtGBP(tender.subGrandTotal || 0) + ')');
+        } catch(err) {
+            alert('Error reading file: ' + err.message);
+        }
+    };
+    reader.readAsArrayBuffer(file);
 }
 
 function renderClients(search) {
@@ -4207,7 +4258,24 @@ function renderClients(search) {
         </tr>`;
 
         if (isExpanded) {
+            const tendersForClient = getData('tenders').filter(t => t.clientId === c.id);
             row += `<tr class="client-expand-row"><td colspan="6"><div class="client-expand-content">
+                <div style="margin-bottom:16px;">
+                    <h4 style="margin-bottom:8px;">Live Sites (${tendersForClient.length})</h4>
+                    <div class="client-site-drop" data-client-id="${c.id}" style="border:2px dashed var(--gray-300);border-radius:8px;padding:16px;text-align:center;cursor:pointer;background:var(--gray-50);font-size:13px;color:var(--gray-600);transition:all 0.15s;">
+                        <strong>Drop site Excel here</strong> to add a new live site under ${esc(c.name)}
+                        <div style="font-size:11px;color:var(--gray-400);margin-top:4px;">Expected columns: Plot, House Type, Bedrooms, Build, Reclean, Sparkle, Additional, Total, Sub Build, Sub Reclean, Sub Sparkle, Sub Additional, Sub Total</div>
+                    </div>
+                    ${tendersForClient.length > 0 ? '<div style="margin-top:10px;">' + tendersForClient.map(function(t){
+                        var ourTotal = t.grandTotal || 0;
+                        var subTotal = t.subGrandTotal || (t.plots||[]).reduce(function(s,p){return s+(p.subTotal||0);},0);
+                        var margin = ourTotal - subTotal;
+                        return '<div style="padding:8px 12px;background:#fff;border:1px solid var(--gray-200);border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="showSection(\'tenders\');viewTender(\'' + t.id + '\');">' +
+                            '<div><strong>' + esc(t.name) + '</strong><span style="font-size:11px;color:var(--gray-500);margin-left:8px;">' + (t.plots||[]).length + ' plots</span></div>' +
+                            '<div style="font-size:12px;"><span style="color:var(--primary);">' + fmtGBP(ourTotal) + '</span> - <span style="color:var(--danger);">' + fmtGBP(subTotal) + '</span> = <strong style="color:' + (margin>=0?'var(--success)':'var(--danger)') + ';">' + fmtGBP(margin) + '</strong></div>' +
+                            '</div>';
+                    }).join('') + '</div>' : ''}
+                </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
                     <div class="client-sub-section">
                         <h4>Contacts (${contacts.length})</h4>
@@ -5188,11 +5256,18 @@ function parseTenderData(rows, fileName) {
     const typeIdx = header.findIndex(h => h.includes('house') || h.includes('type'));
     const bedsIdx = header.findIndex(h => h.includes('bedroom'));
     const storeyIdx = header.findIndex(h => h.includes('storey'));
-    const buildIdx = header.findIndex(h => h.includes('build'));
-    const recleanIdx = header.findIndex(h => h.includes('reclean'));
-    const sparkleIdx = header.findIndex(h => h.includes('sparkle'));
-    const additionalIdx = header.findIndex(h => h.includes('additional'));
-    const totalIdx = header.findIndex(h => h.includes('total'));
+    // Our rates - must NOT contain "sub"
+    const buildIdx = header.findIndex(h => h.includes('build') && !h.includes('sub'));
+    const recleanIdx = header.findIndex(h => h.includes('reclean') && !h.includes('sub'));
+    const sparkleIdx = header.findIndex(h => h.includes('sparkle') && !h.includes('sub'));
+    const additionalIdx = header.findIndex(h => h.includes('additional') && !h.includes('sub'));
+    const totalIdx = header.findIndex(h => h.includes('total') && !h.includes('sub'));
+    // Sub-contractor rates
+    const subBuildIdx = header.findIndex(h => h.includes('sub') && h.includes('build'));
+    const subRecleanIdx = header.findIndex(h => h.includes('sub') && h.includes('reclean'));
+    const subSparkleIdx = header.findIndex(h => h.includes('sub') && h.includes('sparkle'));
+    const subAdditionalIdx = header.findIndex(h => h.includes('sub') && h.includes('additional'));
+    const subTotalIdx = header.findIndex(h => h.includes('sub') && h.includes('total'));
 
     const plots = [];
     const extras = [];
@@ -5214,7 +5289,12 @@ function parseTenderData(rows, fileName) {
                 reclean: recleanIdx >= 0 ? parseCurrency(row[recleanIdx]) : 0,
                 sparkle: sparkleIdx >= 0 ? parseCurrency(row[sparkleIdx]) : 0,
                 additional: additionalIdx >= 0 ? parseCurrency(row[additionalIdx]) : 0,
-                total: totalIdx >= 0 ? parseCurrency(row[totalIdx]) : 0
+                total: totalIdx >= 0 ? parseCurrency(row[totalIdx]) : 0,
+                subBuild: subBuildIdx >= 0 ? parseCurrency(row[subBuildIdx]) : 0,
+                subReclean: subRecleanIdx >= 0 ? parseCurrency(row[subRecleanIdx]) : 0,
+                subSparkle: subSparkleIdx >= 0 ? parseCurrency(row[subSparkleIdx]) : 0,
+                subAdditional: subAdditionalIdx >= 0 ? parseCurrency(row[subAdditionalIdx]) : 0,
+                subTotal: subTotalIdx >= 0 ? parseCurrency(row[subTotalIdx]) : 0
             });
         } else if (!plotVal && typeVal && typeVal.length > 0) {
             // Extra line items (like corridors, windows)
@@ -5234,7 +5314,9 @@ function parseTenderData(rows, fileName) {
     // Recalculate totals if missing
     plots.forEach(p => {
         if (!p.total) p.total = p.build + p.reclean + p.sparkle + p.additional;
+        if (!p.subTotal) p.subTotal = (p.subBuild || 0) + (p.subReclean || 0) + (p.subSparkle || 0) + (p.subAdditional || 0);
     });
+    var subGrandTotal = plots.reduce(function(s, p) { return s + (p.subTotal || 0); }, 0);
 
     const grandTotal = plots.reduce((s, p) => s + p.total, 0) + extras.reduce((s, e) => s + e.total, 0);
 
@@ -5245,6 +5327,7 @@ function parseTenderData(rows, fileName) {
         plots: plots,
         extras: extras,
         grandTotal: grandTotal,
+        subGrandTotal: subGrandTotal,
         plotCount: plots.length,
         createdAt: new Date().toISOString()
     };
@@ -5403,23 +5486,30 @@ function renderTenderTab() {
     const container = document.getElementById('tender-tab-content');
 
     if (currentTenderTab === 'plots') {
+        var hasSub = tender.plots.some(function(p){ return (p.subTotal || p.subBuild || p.subReclean || p.subSparkle || p.subAdditional); });
         container.innerHTML = `
             <table class="tender-data-table">
                 <thead>
-                    <tr><th>Plot</th><th>House Type</th><th>Beds</th><th>Storey</th><th>BUILD</th><th>Reclean</th><th>Sparkle</th><th>Additional</th><th>Total</th></tr>
+                    <tr><th>Plot</th><th>House Type</th><th>Beds</th><th>Storey</th><th>BUILD</th><th>Reclean</th><th>Sparkle</th><th>Additional</th><th>Total</th>${hasSub ? '<th>Sub Total</th><th>Margin</th>' : ''}</tr>
                 </thead>
                 <tbody>
-                    ${tender.plots.map(p => `<tr>
-                        <td><strong>${p.plot}</strong></td>
-                        <td>${esc(p.houseType)}</td>
-                        <td>${p.bedrooms}</td>
-                        <td>${p.storey}</td>
-                        <td class="num">${fmtGBP(p.build)}</td>
-                        <td class="num">${fmtGBP(p.reclean)}</td>
-                        <td class="num">${fmtGBP(p.sparkle)}</td>
-                        <td class="num">${fmtGBP(p.additional)}</td>
-                        <td class="num"><strong>${fmtGBP(p.total)}</strong></td>
-                    </tr>`).join('')}
+                    ${tender.plots.map(function(p){
+                        var subT = p.subTotal || 0;
+                        var margin = (p.total || 0) - subT;
+                        var marginColor = margin >= 0 ? 'var(--success)' : 'var(--danger)';
+                        return `<tr>
+                            <td><strong>${p.plot}</strong></td>
+                            <td>${esc(p.houseType)}</td>
+                            <td>${p.bedrooms}</td>
+                            <td>${p.storey}</td>
+                            <td class="num">${fmtGBP(p.build)}</td>
+                            <td class="num">${fmtGBP(p.reclean)}</td>
+                            <td class="num">${fmtGBP(p.sparkle)}</td>
+                            <td class="num">${fmtGBP(p.additional)}</td>
+                            <td class="num"><strong>${fmtGBP(p.total)}</strong></td>
+                            ${hasSub ? '<td class="num" style="color:var(--danger);">' + fmtGBP(subT) + '</td><td class="num" style="color:' + marginColor + ';font-weight:600;">' + fmtGBP(margin) + '</td>' : ''}
+                        </tr>`;
+                    }).join('')}
                 </tbody>
             </table>
         `;
