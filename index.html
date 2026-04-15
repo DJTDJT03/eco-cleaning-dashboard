@@ -14,6 +14,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        .hidden { display: none !important; }
 
         :root {
             --primary: #2D6A4F;
@@ -1474,6 +1475,15 @@ function toggleMobileMenu(force) {
 
         <div class="card" style="margin-bottom:16px;">
             <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Recent WhatsApp Sends</span>
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('wa-log-full').classList.toggle('hidden')">Show All</button>
+            </div>
+            <div id="wa-log-recent" style="padding:0;"></div>
+            <div id="wa-log-full" class="hidden" style="padding:0;border-top:1px solid var(--gray-100);"></div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
                 <span>Analytics</span>
                 <button class="btn btn-secondary btn-sm" onclick="runManualBackup()">Backup Now</button>
             </div>
@@ -1891,6 +1901,7 @@ function toggleMobileMenu(force) {
                     <div id="subcon-detail-bank" style="font-size:14px;color:var(--gray-600);"></div>
                 </div>
                 <div class="action-btns">
+                    <button class="btn btn-accent btn-sm" id="subcon-whatsapp-btn" onclick="openSubconWhatsApp()">Send WhatsApp</button>
                     <button class="btn btn-secondary btn-sm" id="subcon-edit-btn">Edit</button>
                     <button class="btn btn-danger btn-sm" id="subcon-delete-btn">Delete</button>
                 </div>
@@ -2972,6 +2983,42 @@ function toggleMobileMenu(force) {
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeModal('cert')">Cancel</button>
             <button class="btn btn-primary" onclick="saveCert()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Send WhatsApp Modal (ad-hoc, one person) -->
+<div class="modal-overlay" id="modal-quick-whatsapp">
+    <div class="modal" style="max-width:520px;">
+        <div class="modal-header">
+            <span id="quick-whatsapp-title">Send WhatsApp</span>
+            <button class="modal-close" onclick="closeModal('quick-whatsapp')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>To</label>
+                <input type="tel" id="quick-whatsapp-phone" placeholder="+447xxx">
+                <div id="quick-whatsapp-recipient" style="font-size:11px;color:var(--gray-500);margin-top:4px;"></div>
+            </div>
+            <div class="form-group">
+                <label>Quick Templates</label>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <button class="btn btn-secondary btn-sm" onclick="quickWaTemplate('chase')">Chase invoice</button>
+                    <button class="btn btn-secondary btn-sm" onclick="quickWaTemplate('paid')">Payment made</button>
+                    <button class="btn btn-secondary btn-sm" onclick="quickWaTemplate('statement')">Statement ready</button>
+                    <button class="btn btn-secondary btn-sm" onclick="quickWaTemplate('cert')">Cert expiring</button>
+                    <button class="btn btn-secondary btn-sm" onclick="quickWaTemplate('thanks')">Thank you</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Message</label>
+                <textarea id="quick-whatsapp-message" rows="6" placeholder="Type your message..."></textarea>
+            </div>
+            <div id="quick-whatsapp-status" style="font-size:12px;min-height:16px;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('quick-whatsapp')">Cancel</button>
+            <button class="btn btn-primary" id="quick-whatsapp-send-btn" onclick="sendQuickWhatsApp()">Send</button>
         </div>
     </div>
 </div>
@@ -4350,6 +4397,30 @@ function renderInvoices(filter) {
     renderPurchaseOrders();
 }
 
+// ========== WHATSAPP LOG PANEL ==========
+function renderWhatsAppLogPanel() {
+    var recent = document.getElementById('wa-log-recent');
+    var full = document.getElementById('wa-log-full');
+    if (!recent) return;
+    var log = getData('whatsappLog').slice().sort(function(a,b){ return (b.sentAt||'').localeCompare(a.sentAt||''); });
+    if (log.length === 0) {
+        recent.innerHTML = '<div style="padding:16px;color:var(--gray-400);text-align:center;font-size:13px;">No WhatsApp sends yet.</div>';
+        if (full) full.innerHTML = '';
+        return;
+    }
+    function row(l) {
+        var when = l.sentAt ? new Date(l.sentAt).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
+        var status = l.success ? '<span style="color:var(--success);font-weight:600;">\u2713</span>' : '<span style="color:var(--danger);font-weight:600;">\u2717</span>';
+        return '<tr><td style="padding:6px 12px;font-size:11px;color:var(--gray-500);">' + when + '</td>' +
+            '<td style="padding:6px 12px;font-size:13px;">' + esc(l.phone || '') + '</td>' +
+            '<td style="padding:6px 12px;font-size:12px;color:var(--gray-600);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc((l.messageSnippet||'').replace(/\n/g,' ')) + '</td>' +
+            '<td style="padding:6px 12px;text-align:center;">' + status + '</td></tr>';
+    }
+    var head = '<table style="width:100%;font-size:13px;"><thead><tr style="background:var(--gray-50);"><th style="padding:6px 12px;text-align:left;font-size:11px;color:var(--gray-500);">When</th><th style="padding:6px 12px;text-align:left;font-size:11px;color:var(--gray-500);">To</th><th style="padding:6px 12px;text-align:left;font-size:11px;color:var(--gray-500);">Message</th><th style="padding:6px 12px;text-align:center;font-size:11px;color:var(--gray-500);">OK</th></tr></thead><tbody>';
+    recent.innerHTML = head + log.slice(0,5).map(row).join('') + '</tbody></table>';
+    if (full) full.innerHTML = head + log.map(row).join('') + '</tbody></table>';
+}
+
 // ========== ANALYTICS CHARTS ==========
 window._charts = window._charts || {};
 function _destroyChart(id) {
@@ -4551,6 +4622,9 @@ function refreshDashboard() {
 
     // Analytics charts
     renderAnalyticsCharts();
+
+    // WhatsApp log panel
+    renderWhatsAppLogPanel();
 
     // Daily auto-backup check
     maybeRunAutoBackup();
@@ -6616,6 +6690,72 @@ async function sendWhatsAppToAll() {
     }
     if (btn) { btn.disabled = false; btn.textContent = 'Send WhatsApp to All'; }
     alert('Done. ' + ok + ' sent, ' + fail + ' failed.' + (fail > 0 ? '\n\nTip: for Twilio sandbox, recipients must first WhatsApp "join past-mill" to +1 415 523 8886.' : ''));
+}
+
+// ========== QUICK WHATSAPP (ad-hoc) ==========
+window._quickWaContext = null;
+
+function openQuickWhatsApp(opts) {
+    opts = opts || {};
+    window._quickWaContext = opts;
+    document.getElementById('quick-whatsapp-title').textContent = 'Send WhatsApp' + (opts.name ? ' — ' + opts.name : '');
+    document.getElementById('quick-whatsapp-phone').value = opts.phone || '';
+    document.getElementById('quick-whatsapp-recipient').textContent = opts.name ? (opts.name + (opts.role ? ' (' + opts.role + ')' : '')) : '';
+    document.getElementById('quick-whatsapp-message').value = opts.prefill || '';
+    document.getElementById('quick-whatsapp-status').textContent = '';
+    document.getElementById('quick-whatsapp-send-btn').disabled = false;
+    document.getElementById('quick-whatsapp-send-btn').textContent = 'Send';
+    document.getElementById('modal-quick-whatsapp').classList.add('active');
+}
+
+function openSubconWhatsApp() {
+    var sc = getData('subcontractors').find(function(s){ return s.id === currentSubconId; });
+    if (!sc) return;
+    if (!sc.phone) { alert('No phone number saved for this sub-contractor.'); return; }
+    openQuickWhatsApp({ phone: normalisePhone(sc.phone), name: sc.name, role: 'Sub-Contractor', subconId: sc.id });
+}
+
+function quickWaTemplate(kind) {
+    var settings = getSettings();
+    var ctx = window._quickWaContext || {};
+    var name = ctx.name ? ctx.name.split(' ')[0] : 'there';
+    var sig = '\n\nThanks,\n' + (settings.companyName || 'Eco Cleaning Systems');
+    var msgs = {
+        chase: 'Hi ' + name + ', just a quick note — we have an outstanding invoice on our books. Could you confirm when to expect payment please?' + sig,
+        paid: 'Hi ' + name + ', payment has been sent to your bank today. Please confirm receipt.' + sig,
+        statement: 'Hi ' + name + ', your monthly statement is ready. Please review and let us know if anything needs amending.' + sig,
+        cert: 'Hi ' + name + ', one of your certifications is coming up for renewal. Please send the updated certificate when you have it.' + sig,
+        thanks: 'Hi ' + name + ', thanks for your work this week — appreciated.' + sig
+    };
+    document.getElementById('quick-whatsapp-message').value = msgs[kind] || '';
+}
+
+async function sendQuickWhatsApp() {
+    var phone = normalisePhone(document.getElementById('quick-whatsapp-phone').value.trim());
+    var msg = document.getElementById('quick-whatsapp-message').value.trim();
+    var status = document.getElementById('quick-whatsapp-status');
+    var btn = document.getElementById('quick-whatsapp-send-btn');
+    if (!phone) { status.innerHTML = '<span style="color:var(--danger);">Phone number required</span>'; return; }
+    if (!msg) { status.innerHTML = '<span style="color:var(--danger);">Message required</span>'; return; }
+    btn.disabled = true; btn.textContent = 'Sending...';
+    status.innerHTML = '<span style="color:var(--gray-500);">Contacting Twilio...</span>';
+    try {
+        var res = await fetch('/api/send-whatsapp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to: phone, message: msg })
+        });
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        status.innerHTML = '<span style="color:var(--success);font-weight:600;">\u2713 Sent successfully</span>';
+        btn.textContent = 'Sent';
+        logWhatsAppSend(phone, msg, true, data.sid || '');
+        setTimeout(function(){ closeModal('quick-whatsapp'); }, 1200);
+    } catch(e) {
+        status.innerHTML = '<span style="color:var(--danger);">Failed: ' + esc(e.message) + '</span>';
+        btn.disabled = false; btn.textContent = 'Retry';
+        logWhatsAppSend(phone, msg, false, e.message);
+    }
 }
 
 function logWhatsAppSend(phone, message, success, ref) {
