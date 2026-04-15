@@ -6544,34 +6544,92 @@ function renderScheduleRecipients() {
         list.innerHTML = '<div style="padding:20px;color:var(--gray-400);text-align:center;font-size:13px;">No phone numbers saved on staff, sub-contractors, or trades. Add phones on their profiles first.</div>';
         return;
     }
-    var html = '<table style="width:100%;font-size:13px;">';
+    var html = '<div style="padding:10px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-200);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
+        '<span style="font-size:12px;color:var(--gray-600);">' + people.length + ' recipients with phone numbers</span>' +
+        '<button class="btn btn-accent btn-sm" id="send-all-wa-btn" onclick="sendWhatsAppToAll()">Send WhatsApp to All</button>' +
+        '</div>';
+    html += '<table style="width:100%;font-size:13px;">';
     people.forEach(function(p, i) {
         var norm = normalisePhone(p.phone);
-        html += '<tr style="border-bottom:1px solid var(--gray-100);">' +
+        var rowId = 'recipient-row-' + i;
+        html += '<tr id="' + rowId + '" data-phone="' + norm + '" style="border-bottom:1px solid var(--gray-100);">' +
             '<td style="padding:8px 12px;"><strong>' + esc(p.name) + '</strong><div style="font-size:11px;color:var(--gray-500);">' + esc(p.role) + ' &middot; ' + esc(p.phone) + '</div></td>' +
+            '<td class="send-status" style="padding:8px 12px;font-size:11px;color:var(--gray-500);"></td>' +
             '<td style="padding:8px 12px;text-align:right;white-space:nowrap;">' +
-                '<button class="btn btn-primary btn-sm" onclick="sendVia(\'sms\',\'' + norm + '\')">SMS</button> ' +
-                '<button class="btn btn-accent btn-sm" onclick="sendVia(\'wa\',\'' + norm + '\')">WhatsApp</button>' +
+                '<button class="btn btn-secondary btn-sm" onclick="sendSmsLink(\'' + norm + '\')">SMS app</button> ' +
+                '<button class="btn btn-primary btn-sm" onclick="sendWhatsApp(\'' + norm + '\', this)">Send WhatsApp</button>' +
             '</td></tr>';
     });
     html += '</table>';
     list.innerHTML = html;
 }
 
-function sendVia(channel, phone) {
+function sendSmsLink(phone) {
     var msg = document.getElementById('send-schedule-message').value || '';
     if (!phone) { alert('No phone number on record.'); return; }
-    var url;
-    if (channel === 'wa') {
-        // WhatsApp wants no + and no spaces
-        var waPhone = phone.replace(/[^0-9]/g, '');
-        url = 'https://wa.me/' + waPhone + '?text=' + encodeURIComponent(msg);
-    } else {
-        // sms: link - iOS uses &, Android uses ?
-        var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        url = 'sms:' + phone + (isIOS ? '&' : '?') + 'body=' + encodeURIComponent(msg);
-    }
+    var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    var url = 'sms:' + phone + (isIOS ? '&' : '?') + 'body=' + encodeURIComponent(msg);
     window.open(url, '_blank');
+}
+
+async function sendWhatsApp(phone, btnEl) {
+    var msg = document.getElementById('send-schedule-message').value || '';
+    if (!phone) { alert('No phone number on record.'); return; }
+    var row = btnEl ? btnEl.closest('tr') : null;
+    var statusCell = row ? row.querySelector('.send-status') : null;
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Sending...'; }
+    if (statusCell) statusCell.innerHTML = '<span style="color:var(--gray-500);">Sending...</span>';
+    try {
+        var res = await fetch('/api/send-whatsapp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to: phone, message: msg })
+        });
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        if (btnEl) { btnEl.textContent = 'Sent'; btnEl.disabled = true; }
+        if (statusCell) statusCell.innerHTML = '<span style="color:var(--success);font-weight:600;">\u2713 sent</span>';
+        logWhatsAppSend(phone, msg, true, data.sid || '');
+        return true;
+    } catch(e) {
+        if (btnEl) { btnEl.textContent = 'Retry'; btnEl.disabled = false; }
+        if (statusCell) statusCell.innerHTML = '<span style="color:var(--danger);">' + esc(e.message) + '</span>';
+        logWhatsAppSend(phone, msg, false, e.message);
+        return false;
+    }
+}
+
+async function sendWhatsAppToAll() {
+    var rows = document.querySelectorAll('#send-schedule-recipients tr[data-phone]');
+    if (rows.length === 0) return;
+    if (!confirm('Send WhatsApp message to all ' + rows.length + ' recipients?')) return;
+    var btn = document.getElementById('send-all-wa-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+    var ok = 0, fail = 0;
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var phone = row.getAttribute('data-phone');
+        var sendBtn = row.querySelector('button.btn-primary');
+        var success = await sendWhatsApp(phone, sendBtn);
+        if (success) ok++; else fail++;
+        await new Promise(function(r){ setTimeout(r, 250); }); // rate-limit a touch
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Send WhatsApp to All'; }
+    alert('Done. ' + ok + ' sent, ' + fail + ' failed.' + (fail > 0 ? '\n\nTip: for Twilio sandbox, recipients must first WhatsApp "join past-mill" to +1 415 523 8886.' : ''));
+}
+
+function logWhatsAppSend(phone, message, success, ref) {
+    var log = getData('whatsappLog');
+    log.push({
+        id: generateId(),
+        phone: phone,
+        messageSnippet: (message || '').slice(0, 120),
+        success: !!success,
+        ref: ref || '',
+        sentAt: new Date().toISOString()
+    });
+    if (log.length > 500) log = log.slice(-500);
+    setData('whatsappLog', log);
 }
 
 function renderSchedule() {
