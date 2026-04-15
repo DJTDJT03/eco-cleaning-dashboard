@@ -5,7 +5,7 @@ export default function handler(req, res) {
     return res.status(500).send('Xero not configured on server');
   }
   const scope =
-    'offline_access accounting.transactions accounting.contacts accounting.settings';
+    'offline_access accounting.transactions accounting.contacts.read';
   const state = Math.random().toString(36).slice(2, 10);
   const url =
     'https://login.xero.com/identity/connect/authorize' +
