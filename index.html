@@ -4202,15 +4202,19 @@ function openSiteDetail(clientId, siteIdx) {
         '<div class="form-group"><label>Invoice Contact</label><input type="text" id="site-edit-invoice" value="' + esc(site.invoiceContact||'') + '"></div>' +
         '<div class="form-group"><label>Notes</label><textarea id="site-edit-notes" rows="2">' + esc(site.notes||'') + '</textarea></div>' +
 
-        '<h4 style="margin:20px 0 8px;font-size:13px;">Live Sites / Tenders for this Client (' + allTenders.length + ')</h4>' +
-        (allTenders.length ? allTenders.map(function(t){
+        '<h4 style="margin:20px 0 8px;font-size:13px;">Live Projects on this Site (' + tenders.length + ')</h4>' +
+        '<div class="site-tender-drop" data-client-id="' + clientId + '" data-site-idx="' + siteIdx + '" data-site-name="' + esc(site.name||'') + '" style="border:2px dashed var(--primary);border-radius:8px;padding:14px;text-align:center;cursor:pointer;background:var(--primary-light);font-size:12px;color:var(--primary-dark);margin-bottom:10px;">' +
+            '<strong>Drop project Excel here</strong> to add a live project to <strong>' + esc(site.name||'this site') + '</strong>' +
+            '<div style="font-size:10px;color:var(--gray-500);margin-top:2px;">Expects Plot, House Type, Build, Reclean, Sparkle, Additional, Total (+ Sub columns for sub-contractor rates)</div>' +
+        '</div>' +
+        (tenders.length ? tenders.map(function(t){
             var our = t.grandTotal || 0;
             var sub = t.subGrandTotal || (t.plots||[]).reduce(function(s,p){return s+(p.subTotal||0);},0);
             var m = our - sub;
-            return '<div style="padding:8px 12px;background:var(--gray-50);border-radius:6px;margin-bottom:4px;cursor:pointer;display:flex;justify-content:space-between;" onclick="closeSiteDetail();showSection(\'tenders\');viewTender(\'' + t.id + '\');">' +
-                '<strong>' + esc(t.name) + '</strong>' +
+            return '<div style="padding:8px 12px;background:var(--gray-50);border-radius:6px;margin-bottom:4px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="closeSiteDetail();showSection(\'tenders\');viewTender(\'' + t.id + '\');">' +
+                '<div><strong>' + esc(t.name) + '</strong><span style="font-size:11px;color:var(--gray-500);margin-left:8px;">' + (t.plots||[]).length + ' plots</span></div>' +
                 '<span style="font-size:12px;"><span style="color:var(--primary);">' + fmtGBP(our) + '</span> &minus; <span style="color:var(--danger);">' + fmtGBP(sub) + '</span> = <strong style="color:' + (m>=0?'var(--success)':'var(--danger)') + ';">' + fmtGBP(m) + '</strong></span></div>';
-        }).join('') : '<p style="color:var(--gray-400);font-size:12px;">None yet. Drop an Excel on this client to add one.</p>') +
+        }).join('') : '<p style="color:var(--gray-400);font-size:12px;">No live projects on this site yet. Drop a project Excel above to add one.</p>') +
 
         '<h4 style="margin:20px 0 8px;font-size:13px;">Invoices tagged to this site (' + siteInvoices.length + ')</h4>' +
         (siteInvoices.length ? '<table style="width:100%;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 8px;">Number</th><th style="text-align:left;padding:4px 8px;">Date</th><th style="text-align:left;padding:4px 8px;">Status</th><th style="text-align:right;padding:4px 8px;">Amount</th></tr></thead><tbody>' +
@@ -4240,6 +4244,67 @@ function openSiteDetail(clientId, siteIdx) {
             '<button class="btn btn-primary" onclick="saveSiteEdit(\'' + clientId + '\',' + siteIdx + ')">Save Changes</button></div>' +
         '</div></div>';
     document.body.appendChild(modal);
+    setTimeout(wireSiteTenderDropZone, 50);
+}
+
+function wireSiteTenderDropZone() {
+    document.querySelectorAll('.site-tender-drop').forEach(function(zone) {
+        if (zone.__wired) return;
+        zone.__wired = true;
+        var clientId = zone.getAttribute('data-client-id');
+        var siteIdx = parseInt(zone.getAttribute('data-site-idx'), 10);
+        var siteName = zone.getAttribute('data-site-name') || '';
+
+        function handle(file) {
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    var data = new Uint8Array(e.target.result);
+                    var wb = XLSX.read(data, { type: 'array' });
+                    var sheet = wb.Sheets[wb.SheetNames[0]];
+                    var rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+                    var tender = parseTenderData(rows, file.name);
+                    if (!tender) return;
+                    tender.clientId = clientId;
+                    tender.siteName = siteName;
+                    tender.status = 'won';
+                    var preInv = tender._preInvoiced || {};
+                    delete tender._preInvoiced;
+                    var tenders = getData('tenders');
+                    tenders.push(tender);
+                    setData('tenders', tenders);
+                    if (Object.keys(preInv).length > 0) {
+                        localStorage.setItem('cb_tenderInvoicing_' + tender.id, JSON.stringify({ invoiced: preInv }));
+                    }
+                    closeSiteDetail();
+                    renderClients(document.querySelector('#section-clients .search-bar')?.value || '');
+                    var preCount = Object.keys(preInv).length;
+                    alert('Project added to ' + siteName + '.\n\n' + tender.plots.length + ' plots\nOur total: ' + fmtGBP(tender.grandTotal) + '\nSub total: ' + fmtGBP(tender.subGrandTotal || 0) +
+                        (preCount > 0 ? '\n\n' + preCount + ' item' + (preCount===1?'':'s') + ' pre-marked as completed.' : '') +
+                        '\n\nOpening the project...');
+                    setTimeout(function(){ showSection('tenders'); viewTender(tender.id); }, 100);
+                } catch(err) { alert('Error reading file: ' + err.message); }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        zone.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            var input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.xlsx,.xls,.csv';
+            input.onchange = function() { handle(input.files[0]); };
+            input.click();
+        });
+        zone.addEventListener('dragover', function(e){ e.preventDefault(); e.stopPropagation(); zone.style.background = 'var(--accent-light)'; });
+        zone.addEventListener('dragleave', function(e){ e.preventDefault(); e.stopPropagation(); zone.style.background = 'var(--primary-light)'; });
+        zone.addEventListener('drop', function(e){
+            e.preventDefault(); e.stopPropagation();
+            zone.style.background = 'var(--primary-light)';
+            handle(e.dataTransfer.files[0]);
+        });
+    });
 }
 
 function closeSiteDetail() {
