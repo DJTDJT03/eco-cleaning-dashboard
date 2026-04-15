@@ -4176,6 +4176,106 @@ function toggleClientExpand(id) {
     setTimeout(wireClientSiteDropZones, 50);
 }
 
+function openSiteDetail(clientId, siteIdx) {
+    var client = getData('clients').find(function(c){ return c.id === clientId; });
+    if (!client || !client.sites || !client.sites[siteIdx]) return;
+    var site = client.sites[siteIdx];
+
+    // Find related records
+    var tenders = getData('tenders').filter(function(t){
+        return t.clientId === clientId && (
+            (t.siteName && t.siteName === site.name) ||
+            (t.name && site.name && t.name.toLowerCase().indexOf(site.name.toLowerCase()) !== -1)
+        );
+    });
+    var allTenders = getData('tenders').filter(function(t){ return t.clientId === clientId; });
+    var invoices = getData('invoices').filter(function(i){ return i.clientId === clientId && !i.isQuote; });
+    var siteInvoices = invoices.filter(function(i){ return (i.siteName && i.siteName === site.name) || (i.site && i.site === site.name); });
+    var jobs = getData('jobs').filter(function(j){ return j.clientId === clientId && (j.site === site.name || j.siteName === site.name); });
+    var bookings = getData('bookings').filter(function(b){ return b.clientId === clientId && (b.site === site.name || b.siteName === site.name); });
+
+    var html =
+        '<div style="padding:4px;">' +
+        '<div class="form-row"><div class="form-group"><label>Site Name</label><input type="text" id="site-edit-name" value="' + esc(site.name||'') + '"></div>' +
+        '<div class="form-group"><label>Region</label><input type="text" id="site-edit-region" value="' + esc(site.region||'') + '"></div></div>' +
+        '<div class="form-group"><label>Address</label><textarea id="site-edit-address" rows="2">' + esc(site.address||'') + '</textarea></div>' +
+        '<div class="form-group"><label>Invoice Contact</label><input type="text" id="site-edit-invoice" value="' + esc(site.invoiceContact||'') + '"></div>' +
+        '<div class="form-group"><label>Notes</label><textarea id="site-edit-notes" rows="2">' + esc(site.notes||'') + '</textarea></div>' +
+
+        '<h4 style="margin:20px 0 8px;font-size:13px;">Live Sites / Tenders for this Client (' + allTenders.length + ')</h4>' +
+        (allTenders.length ? allTenders.map(function(t){
+            var our = t.grandTotal || 0;
+            var sub = t.subGrandTotal || (t.plots||[]).reduce(function(s,p){return s+(p.subTotal||0);},0);
+            var m = our - sub;
+            return '<div style="padding:8px 12px;background:var(--gray-50);border-radius:6px;margin-bottom:4px;cursor:pointer;display:flex;justify-content:space-between;" onclick="closeSiteDetail();showSection(\'tenders\');viewTender(\'' + t.id + '\');">' +
+                '<strong>' + esc(t.name) + '</strong>' +
+                '<span style="font-size:12px;"><span style="color:var(--primary);">' + fmtGBP(our) + '</span> &minus; <span style="color:var(--danger);">' + fmtGBP(sub) + '</span> = <strong style="color:' + (m>=0?'var(--success)':'var(--danger)') + ';">' + fmtGBP(m) + '</strong></span></div>';
+        }).join('') : '<p style="color:var(--gray-400);font-size:12px;">None yet. Drop an Excel on this client to add one.</p>') +
+
+        '<h4 style="margin:20px 0 8px;font-size:13px;">Invoices tagged to this site (' + siteInvoices.length + ')</h4>' +
+        (siteInvoices.length ? '<table style="width:100%;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 8px;">Number</th><th style="text-align:left;padding:4px 8px;">Date</th><th style="text-align:left;padding:4px 8px;">Status</th><th style="text-align:right;padding:4px 8px;">Amount</th></tr></thead><tbody>' +
+            siteInvoices.map(function(i){ return '<tr><td style="padding:4px 8px;">' + esc(i.number||'-') + '</td><td style="padding:4px 8px;">' + (i.date?formatDate(i.date):'') + '</td><td style="padding:4px 8px;">' + esc(i.status||'') + '</td><td style="padding:4px 8px;text-align:right;">' + fmtGBP(i.total||0) + '</td></tr>'; }).join('') +
+            '</tbody></table>' : '<p style="color:var(--gray-400);font-size:12px;">None. Tag invoices to this site by typing the site name in the invoice Site field.</p>') +
+
+        '<h4 style="margin:20px 0 8px;font-size:13px;">Jobs (' + jobs.length + ') &middot; Bookings (' + bookings.length + ')</h4>' +
+        (jobs.length === 0 && bookings.length === 0 ? '<p style="color:var(--gray-400);font-size:12px;">No jobs or bookings linked.</p>' :
+            jobs.map(function(j){ return '<div style="padding:4px 8px;background:var(--gray-50);border-radius:4px;margin-bottom:3px;font-size:12px;">Job: ' + esc(j.name||'') + ' &middot; ' + (j.date?formatDate(j.date):'') + '</div>'; }).join('') +
+            bookings.map(function(b){ return '<div style="padding:4px 8px;background:var(--accent-light);border-radius:4px;margin-bottom:3px;font-size:12px;">Booking: ' + esc(b.name||b.description||'') + '</div>'; }).join('')) +
+
+        '</div>';
+
+    var modalId = 'modal-site-detail';
+    var existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+    var modal = document.createElement('div');
+    modal.className = 'modal-overlay active';
+    modal.id = modalId;
+    modal.innerHTML = '<div class="modal" style="max-width:700px;max-height:85vh;overflow-y:auto;">' +
+        '<div class="modal-header"><span>Site: ' + esc(site.name || '(unnamed)') + ' &mdash; ' + esc(client.name) + '</span>' +
+        '<button class="modal-close" onclick="closeSiteDetail()">&times;</button></div>' +
+        '<div class="modal-body">' + html + '</div>' +
+        '<div class="modal-footer" style="justify-content:space-between;">' +
+            '<button class="btn btn-danger" onclick="deleteSiteFromClient(\'' + clientId + '\',' + siteIdx + ')">Delete Site</button>' +
+            '<div><button class="btn btn-secondary" onclick="closeSiteDetail()">Close</button> ' +
+            '<button class="btn btn-primary" onclick="saveSiteEdit(\'' + clientId + '\',' + siteIdx + ')">Save Changes</button></div>' +
+        '</div></div>';
+    document.body.appendChild(modal);
+}
+
+function closeSiteDetail() {
+    var el = document.getElementById('modal-site-detail');
+    if (el) el.remove();
+}
+
+function saveSiteEdit(clientId, siteIdx) {
+    var clients = getData('clients');
+    var idx = clients.findIndex(function(c){ return c.id === clientId; });
+    if (idx === -1) return;
+    var c = clients[idx];
+    if (!c.sites || !c.sites[siteIdx]) return;
+    c.sites[siteIdx] = {
+        name: document.getElementById('site-edit-name').value.trim(),
+        region: document.getElementById('site-edit-region').value.trim(),
+        address: document.getElementById('site-edit-address').value.trim(),
+        invoiceContact: document.getElementById('site-edit-invoice').value.trim(),
+        notes: document.getElementById('site-edit-notes').value.trim()
+    };
+    setData('clients', clients);
+    closeSiteDetail();
+    renderClients(document.querySelector('#section-clients .search-bar')?.value || '');
+}
+
+function deleteSiteFromClient(clientId, siteIdx) {
+    if (!confirm('Delete this site? This does not affect linked tenders/invoices.')) return;
+    var clients = getData('clients');
+    var idx = clients.findIndex(function(c){ return c.id === clientId; });
+    if (idx === -1) return;
+    clients[idx].sites.splice(siteIdx, 1);
+    setData('clients', clients);
+    closeSiteDetail();
+    renderClients(document.querySelector('#section-clients .search-bar')?.value || '');
+}
+
 function wireClientSiteDropZones() {
     document.querySelectorAll('.client-site-drop').forEach(function(zone) {
         if (zone.__wired) return;
@@ -4288,9 +4388,9 @@ function renderClients(search) {
                         var ourTotal = t.grandTotal || 0;
                         var subTotal = t.subGrandTotal || (t.plots||[]).reduce(function(s,p){return s+(p.subTotal||0);},0);
                         var margin = ourTotal - subTotal;
-                        return '<div style="padding:8px 12px;background:#fff;border:1px solid var(--gray-200);border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="showSection(\'tenders\');viewTender(\'' + t.id + '\');">' +
+                        return '<div style="padding:8px 12px;background:#fff;border:1px solid var(--gray-200);border-radius:6px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background=\'var(--primary-light)\'" onmouseout="this.style.background=\'#fff\'" onclick="event.stopPropagation();showSection(\'tenders\');viewTender(\'' + t.id + '\');">' +
                             '<div><strong>' + esc(t.name) + '</strong><span style="font-size:11px;color:var(--gray-500);margin-left:8px;">' + (t.plots||[]).length + ' plots</span></div>' +
-                            '<div style="font-size:12px;"><span style="color:var(--primary);">' + fmtGBP(ourTotal) + '</span> - <span style="color:var(--danger);">' + fmtGBP(subTotal) + '</span> = <strong style="color:' + (margin>=0?'var(--success)':'var(--danger)') + ';">' + fmtGBP(margin) + '</strong></div>' +
+                            '<div style="font-size:12px;"><span style="color:var(--primary);">' + fmtGBP(ourTotal) + '</span> &minus; <span style="color:var(--danger);">' + fmtGBP(subTotal) + '</span> = <strong style="color:' + (margin>=0?'var(--success)':'var(--danger)') + ';">' + fmtGBP(margin) + '</strong></div>' +
                             '</div>';
                     }).join('') + '</div>' : ''}
                 </div>
@@ -4306,7 +4406,7 @@ function renderClients(search) {
                     <div class="client-sub-section">
                         <h4>Sites (${sites.length})</h4>
                         ${sites.length === 0 ? '<p style="color:var(--gray-400);font-size:13px;">No sites added</p>' :
-                        sites.map(st => `<div class="site-card">
+                        sites.map((st, sIdx) => `<div class="site-card" style="cursor:pointer;" onclick="event.stopPropagation();openSiteDetail('${c.id}',${sIdx})">
                             <div class="site-name">${esc(st.name)}${st.region ? ` <span class="badge badge-progress" style="font-size:11px;">${esc(st.region)}</span>` : ''}</div>
                             <div class="site-detail">${esc(st.address)}</div>
                             ${st.invoiceContact ? `<div class="site-detail">Invoice: ${esc(st.invoiceContact)}</div>` : ''}
