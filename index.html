@@ -4205,11 +4205,20 @@ function processClientSiteFile(file, clientId) {
             if (!tender) return;
             tender.clientId = clientId;
             tender.status = 'won';
+            // Stash pre-invoiced data, then strip from tender object
+            var preInv = tender._preInvoiced || {};
+            delete tender._preInvoiced;
             var tenders = getData('tenders');
             tenders.push(tender);
             setData('tenders', tenders);
+            // Apply pre-invoiced markers into the tender's invoicing store
+            if (Object.keys(preInv).length > 0) {
+                localStorage.setItem('cb_tenderInvoicing_' + tender.id, JSON.stringify({ invoiced: preInv }));
+            }
             renderClients(document.querySelector('#section-clients .search-bar')?.value || '');
-            alert('Live site added: ' + tender.name + ' (' + tender.plots.length + ' plots, our total ' + fmtGBP(tender.grandTotal) + ', sub total ' + fmtGBP(tender.subGrandTotal || 0) + ')');
+            var preCount = Object.keys(preInv).length;
+            alert('Live site added: ' + tender.name + '\n\n' + tender.plots.length + ' plots\nOur total: ' + fmtGBP(tender.grandTotal) + '\nSub total: ' + fmtGBP(tender.subGrandTotal || 0) +
+                (preCount > 0 ? '\n\n' + preCount + ' item' + (preCount===1?'':'s') + ' pre-marked as completed.' : ''));
         } catch(err) {
             alert('Error reading file: ' + err.message);
         }
@@ -5232,9 +5241,16 @@ function processTenderFile(file) {
             const tender = parseTenderData(rows, file.name);
             if (!tender) return;
 
+            var preInv = tender._preInvoiced || {};
+            delete tender._preInvoiced;
+
             let tenders = getData('tenders');
             tenders.push(tender);
             setData('tenders', tenders);
+
+            if (Object.keys(preInv).length > 0) {
+                localStorage.setItem('cb_tenderInvoicing_' + tender.id, JSON.stringify({ invoiced: preInv }));
+            }
 
             renderTenders();
             viewTender(tender.id);
@@ -5268,6 +5284,24 @@ function parseTenderData(rows, fileName) {
     const subSparkleIdx = header.findIndex(h => h.includes('sub') && h.includes('sparkle'));
     const subAdditionalIdx = header.findIndex(h => h.includes('sub') && h.includes('additional'));
     const subTotalIdx = header.findIndex(h => h.includes('sub') && h.includes('total'));
+    // Completion / invoiced status columns (optional) - look for "invoiced", "done", "completed"
+    function findStatusCol(type) {
+        return header.findIndex(h => h.includes(type) && (h.includes('invoiced') || h.includes('done') || h.includes('completed') || h.includes('paid')));
+    }
+    const buildDoneIdx = findStatusCol('build');
+    const recleanDoneIdx = findStatusCol('reclean');
+    const sparkleDoneIdx = findStatusCol('sparkle');
+    const additionalDoneIdx = findStatusCol('additional');
+    function isDone(val) {
+        if (val === null || val === undefined || val === '') return false;
+        var s = String(val).trim().toLowerCase();
+        if (s === 'y' || s === 'yes' || s === 'true' || s === 'done' || s === 'completed' || s === '1' || s === 'x' || s === 'invoiced' || s === 'paid') return true;
+        // Date string → done
+        if (!isNaN(Date.parse(s))) return true;
+        return false;
+    }
+    var preInvoiced = {};
+    var preSignoffs = {};
 
     const plots = [];
     const extras = [];
@@ -5296,6 +5330,12 @@ function parseTenderData(rows, fileName) {
                 subAdditional: subAdditionalIdx >= 0 ? parseCurrency(row[subAdditionalIdx]) : 0,
                 subTotal: subTotalIdx >= 0 ? parseCurrency(row[subTotalIdx]) : 0
             });
+            // Capture done/invoiced flags from the row
+            var pn = Number(plotVal);
+            if (buildDoneIdx >= 0 && isDone(row[buildDoneIdx])) { preInvoiced[pn + '_build'] = { ref: 'Historical', date: '' }; preSignoffs[pn + '_build'] = { status: 'signedoff', date: '' }; }
+            if (recleanDoneIdx >= 0 && isDone(row[recleanDoneIdx])) { preInvoiced[pn + '_reclean'] = { ref: 'Historical', date: '' }; preSignoffs[pn + '_reclean'] = { status: 'signedoff', date: '' }; }
+            if (sparkleDoneIdx >= 0 && isDone(row[sparkleDoneIdx])) { preInvoiced[pn + '_sparkle'] = { ref: 'Historical', date: '' }; preSignoffs[pn + '_sparkle'] = { status: 'signedoff', date: '' }; }
+            if (additionalDoneIdx >= 0 && isDone(row[additionalDoneIdx])) { preInvoiced[pn + '_additional'] = { ref: 'Historical', date: '' }; preSignoffs[pn + '_additional'] = { status: 'signedoff', date: '' }; }
         } else if (!plotVal && typeVal && typeVal.length > 0) {
             // Extra line items (like corridors, windows)
             const extraTotal = totalIdx >= 0 ? parseCurrency(row[totalIdx]) : 0;
@@ -5329,6 +5369,8 @@ function parseTenderData(rows, fileName) {
         grandTotal: grandTotal,
         subGrandTotal: subGrandTotal,
         plotCount: plots.length,
+        signoffs: preSignoffs,
+        _preInvoiced: preInvoiced,
         createdAt: new Date().toISOString()
     };
 }
@@ -5887,6 +5929,7 @@ function renderTenderInvoicing(container, tender) {
     h.push('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">');
     h.push('<div style="font-weight:600;font-size:13px;">Scheme Filter</div>');
     h.push('<button class="btn btn-secondary btn-sm" onclick="assignSchemeBulk()">Bulk Assign Schemes</button> ');
+    h.push('<button class="btn btn-secondary btn-sm" onclick="bulkMarkHistorical(\'' + tender.id + '\')">Bulk Mark Completed (historical)</button>');
     h.push('<button class="btn btn-danger btn-sm" onclick="resetInvoicedStatus(\'' + tender.id + '\')">Reset All Invoiced</button>');
     h.push('</div><div class="inv-scheme-bar">');
     h.push('<button class="scheme-btn ' + (invoicingSchemeFilter === 'all' ? 'active' : '') + '" onclick="filterInvScheme(\'all\')">All (' + plots.length + ')</button>');
@@ -6180,6 +6223,63 @@ function invoiceSingleClean(tenderId, plotNum, cleanType, amount) {
     } catch(err) {
         alert('Error invoicing: ' + err.message + '\n' + err.stack);
     }
+}
+
+function bulkMarkHistorical(tenderId) {
+    var tender = getData('tenders').find(function(t){ return t.id === tenderId; });
+    if (!tender) return;
+    var choice = prompt(
+        'Bulk-mark plots on ' + tender.name + ' as historically completed (no invoice attached).\n\n' +
+        'Enter clean type(s) to mark, separated by commas:\n' +
+        '  build, reclean, sparkle, additional\n\n' +
+        'Or type "all" to mark every clean type across every plot.\n\n' +
+        'You can restrict by plot range by adding e.g. "build 1-50".', 'build');
+    if (!choice) return;
+    var parts = choice.trim().toLowerCase().split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+
+    var data = getTenderInvData(tenderId);
+    if (!data.invoiced) data.invoiced = {};
+    var added = 0;
+    parts.forEach(function(part) {
+        var types = [];
+        var range = null;
+        var tokens = part.split(/\s+/);
+        tokens.forEach(function(tok) {
+            if (/^\d+-\d+$/.test(tok)) {
+                var r = tok.split('-').map(Number);
+                range = { from: r[0], to: r[1] };
+            } else if (tok === 'all') {
+                types = ['build','reclean','sparkle','additional'];
+            } else if (['build','reclean','sparkle','additional'].indexOf(tok) !== -1) {
+                types.push(tok);
+            }
+        });
+        if (types.length === 0) return;
+        tender.plots.forEach(function(p) {
+            if (range && (p.plot < range.from || p.plot > range.to)) return;
+            types.forEach(function(t) {
+                if ((p[t] || 0) > 0) {
+                    var key = p.plot + '_' + t;
+                    if (!data.invoiced[key]) { data.invoiced[key] = { ref: 'Historical', date: '' }; added++; }
+                }
+            });
+        });
+    });
+    setTenderInvData(tenderId, data);
+
+    // Also mark those as signed-off so the UI treats them as finished work
+    var tenders = getData('tenders');
+    var idx = tenders.findIndex(function(t){ return t.id === tenderId; });
+    if (idx !== -1) {
+        if (!tenders[idx].signoffs) tenders[idx].signoffs = {};
+        Object.keys(data.invoiced).forEach(function(k) {
+            if (!tenders[idx].signoffs[k]) tenders[idx].signoffs[k] = { status: 'signedoff', date: '' };
+        });
+        setData('tenders', tenders);
+    }
+
+    alert(added + ' item' + (added===1?'':'s') + ' marked as historically completed.');
+    renderTenderTab();
 }
 
 function resetInvoicedStatus(tenderId) {
