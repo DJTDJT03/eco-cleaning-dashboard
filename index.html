@@ -2389,6 +2389,15 @@ function toggleMobileMenu(force) {
                     <option value="paid">Paid</option>
                     <option value="overdue">Overdue</option>
                 </select>
+                <select class="search-bar" id="invoice-sort" onchange="renderInvoices(document.getElementById('invoice-filter').value)" style="width:auto;padding:6px 10px;font-size:13px;">
+                    <option value="date-desc">Most recent first</option>
+                    <option value="date-asc">Oldest first</option>
+                    <option value="created-desc">Newest added</option>
+                    <option value="number-desc">Invoice # (Z-A)</option>
+                    <option value="number-asc">Invoice # (A-Z)</option>
+                    <option value="amount-desc">Amount (high-low)</option>
+                    <option value="amount-asc">Amount (low-high)</option>
+                </select>
                 <button class="btn btn-danger btn-sm" id="bulk-delete-invoices-btn" style="display:none;" onclick="bulkDeleteInvoices()">Delete Selected</button>
                 <select class="search-bar" id="bulk-status-invoices" style="display:none;width:auto;padding:6px 10px;font-size:13px;" onchange="bulkUpdateInvoiceStatus(this.value)">
                     <option value="">Bulk Status...</option>
@@ -4685,7 +4694,19 @@ function renderInvoices(filter) {
         }
     }
 
-    invoices.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    var sortEl = document.getElementById('invoice-sort');
+    var sort = sortEl ? sortEl.value : 'date-desc';
+    invoices.sort(function(a, b) {
+        switch (sort) {
+            case 'date-asc': return new Date(a.date || 0) - new Date(b.date || 0);
+            case 'created-desc': return (b.createdAt || '').localeCompare(a.createdAt || '');
+            case 'number-desc': return (b.number || '').localeCompare(a.number || '', undefined, { numeric: true });
+            case 'number-asc': return (a.number || '').localeCompare(b.number || '', undefined, { numeric: true });
+            case 'amount-desc': return (b.total || 0) - (a.total || 0);
+            case 'amount-asc': return (a.total || 0) - (b.total || 0);
+            default: return new Date(b.date || 0) - new Date(a.date || 0);
+        }
+    });
 
     const tbody = document.getElementById('invoices-table');
     document.getElementById('inv-select-all').checked = false;
