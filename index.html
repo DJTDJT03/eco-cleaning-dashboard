@@ -1534,6 +1534,7 @@ function toggleMobileMenu(force) {
             <div style="display:flex;gap:12px;align-items:center;">
                 <input type="text" class="search-bar" placeholder="Search clients..." oninput="renderClients(this.value)">
                 <button class="btn btn-secondary btn-sm" onclick="exportClientsCSV()">Export CSV</button>
+                <button class="btn btn-accent btn-sm" onclick="openGroupByCompanyModal()">Group by Company</button>
                 <button class="btn btn-primary" onclick="openModal('client')">+ Add Client</button>
             </div>
         </div>
@@ -3946,6 +3947,211 @@ function saveClient() {
     renderClients();
 }
 
+// ========== CLIENT MERGE / GROUP BY COMPANY ==========
+function mergeClients(sourceId, targetId, opts) {
+    opts = opts || {};
+    if (sourceId === targetId) return;
+    var clients = getData('clients');
+    var source = clients.find(function(c){ return c.id === sourceId; });
+    var target = clients.find(function(c){ return c.id === targetId; });
+    if (!source || !target) return;
+
+    // Move sites - if source has no explicit sites, create one from its own info
+    if (!target.sites) target.sites = [];
+    if (!target.contacts) target.contacts = [];
+    var sourceSites = (source.sites && source.sites.length)
+        ? source.sites
+        : [{ name: source.name, address: source.headOffice || '', region: '', invoiceContact: '', notes: source.notes || '' }];
+    sourceSites.forEach(function(s) {
+        target.sites.push(Object.assign({}, s, { name: s.name || source.name }));
+    });
+
+    // Move contacts (dedupe by name+phone)
+    var existingKeys = new Set(target.contacts.map(function(c){ return (c.name||'').toLowerCase() + '|' + (c.phone||''); }));
+    (source.contacts || []).forEach(function(ct) {
+        var key = (ct.name||'').toLowerCase() + '|' + (ct.phone||'');
+        if (!existingKeys.has(key)) { target.contacts.push(ct); existingKeys.add(key); }
+    });
+
+    // Reassign invoices / jobs / bookings
+    var counts = { invoices: 0, jobs: 0, bookings: 0 };
+    var invoices = getData('invoices');
+    invoices.forEach(function(i){ if (i.clientId === sourceId) { i.clientId = targetId; counts.invoices++; } });
+    setData('invoices', invoices);
+    var jobs = getData('jobs');
+    jobs.forEach(function(j){ if (j.clientId === sourceId) { j.clientId = targetId; counts.jobs++; } });
+    setData('jobs', jobs);
+    var bookings = getData('bookings');
+    bookings.forEach(function(b){ if (b.clientId === sourceId) { b.clientId = targetId; counts.bookings++; } });
+    setData('bookings', bookings);
+
+    // Append any source notes
+    if (source.notes) {
+        target.notes = (target.notes ? target.notes + '\n\n' : '') + '[Merged from ' + source.name + '] ' + source.notes;
+    }
+
+    // Remove source
+    clients = clients.filter(function(c){ return c.id !== sourceId; });
+    // Replace target in the list
+    var tIdx = clients.findIndex(function(c){ return c.id === targetId; });
+    if (tIdx !== -1) clients[tIdx] = target;
+    setData('clients', clients);
+
+    return counts;
+}
+
+function openMergeClient(clientId) {
+    var clients = getData('clients');
+    var source = clients.find(function(c){ return c.id === clientId; });
+    if (!source) return;
+    var options = clients.filter(function(c){ return c.id !== clientId; })
+        .map(function(c){ return '<option value="' + c.id + '">' + esc(c.name) + '</option>'; }).join('');
+
+    var modalId = 'modal-merge-client';
+    var existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+    var modal = document.createElement('div');
+    modal.className = 'modal-overlay active';
+    modal.id = modalId;
+    modal.innerHTML = '<div class="modal" style="max-width:520px;">' +
+        '<div class="modal-header"><span>Merge "' + esc(source.name) + '" into...</span>' +
+        '<button class="modal-close" onclick="document.getElementById(\'' + modalId + '\').remove()">&times;</button></div>' +
+        '<div class="modal-body">' +
+            '<div class="form-group"><label>Choose existing parent company</label>' +
+            '<select id="merge-target-select">' + options + '</select></div>' +
+            '<div style="text-align:center;color:var(--gray-400);font-size:12px;margin:8px 0;">&mdash; or &mdash;</div>' +
+            '<div class="form-group"><label>Create a new parent company</label>' +
+            '<input type="text" id="merge-new-parent" placeholder="e.g. Newett Homes"></div>' +
+            '<div style="background:var(--gray-50);padding:10px;border-radius:6px;font-size:12px;color:var(--gray-600);">This will move "' + esc(source.name) + '" in as a site under the parent, plus move all its contacts, invoices, jobs, and bookings. The original client will be deleted.</div>' +
+        '</div>' +
+        '<div class="modal-footer">' +
+            '<button class="btn btn-secondary" onclick="document.getElementById(\'' + modalId + '\').remove()">Cancel</button>' +
+            '<button class="btn btn-primary" onclick="confirmMergeClient(\'' + clientId + '\')">Merge</button>' +
+        '</div></div>';
+    document.body.appendChild(modal);
+}
+
+function confirmMergeClient(sourceId) {
+    var targetId = document.getElementById('merge-target-select').value;
+    var newParent = document.getElementById('merge-new-parent').value.trim();
+    if (newParent) {
+        // Create the new parent, then merge source into it
+        var clients = getData('clients');
+        var parent = {
+            id: generateId(),
+            name: newParent,
+            headOffice: '',
+            contacts: [], sites: [],
+            notes: 'Parent company created during merge',
+            createdAt: new Date().toISOString()
+        };
+        clients.push(parent);
+        setData('clients', clients);
+        targetId = parent.id;
+    }
+    if (!targetId) { alert('Choose an existing company or type a new parent name.'); return; }
+    var counts = mergeClients(sourceId, targetId);
+    document.getElementById('modal-merge-client').remove();
+    if (counts) {
+        alert('Merged. Moved ' + counts.invoices + ' invoice(s), ' + counts.jobs + ' job(s), ' + counts.bookings + ' booking(s).');
+    }
+    renderClients();
+}
+
+function openGroupByCompanyModal() {
+    var clients = getData('clients');
+    if (clients.length < 2) { alert('Not enough clients to group.'); return; }
+
+    // Find groups by shared first word (min 2 members)
+    var groups = {};
+    clients.forEach(function(c) {
+        var word = (c.name || '').split(/\s+/)[0];
+        if (!word || word.length < 3) return;
+        var key = word.toLowerCase();
+        if (!groups[key]) groups[key] = { label: word, clients: [] };
+        groups[key].clients.push(c);
+    });
+    var candidateGroups = Object.values(groups).filter(function(g){ return g.clients.length >= 2; });
+
+    var modalId = 'modal-group-company';
+    var existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+
+    var body = '';
+    if (candidateGroups.length === 0) {
+        body = '<p style="color:var(--gray-500);">No obvious groups found by shared name prefix. Use the <strong>Merge</strong> button on individual client rows to merge them manually.</p>';
+    } else {
+        body = '<p style="font-size:13px;color:var(--gray-600);margin-bottom:12px;">Tick the groups you want to consolidate. A parent company will be created for each, and all its member clients will move in as sites.</p>';
+        candidateGroups.forEach(function(g, idx) {
+            body += '<div style="border:1px solid var(--gray-200);border-radius:6px;padding:10px 12px;margin-bottom:8px;">' +
+                '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">' +
+                '<input type="checkbox" class="group-check" data-group="' + idx + '" style="margin-top:4px;">' +
+                '<div style="flex:1;">' +
+                '<div style="font-weight:600;margin-bottom:4px;">' + esc(g.label) + ' <span style="font-weight:400;color:var(--gray-500);font-size:12px;">(' + g.clients.length + ' clients)</span></div>' +
+                '<div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;">Parent name:</div>' +
+                '<input type="text" id="group-name-' + idx + '" value="' + esc(g.label) + ' Homes" style="width:100%;padding:4px 8px;font-size:12px;">' +
+                '<div style="font-size:11px;color:var(--gray-600);margin-top:6px;">' + g.clients.map(function(c){ return esc(c.name); }).join(', ') + '</div>' +
+                '</div></label></div>';
+        });
+    }
+
+    var modal = document.createElement('div');
+    modal.className = 'modal-overlay active';
+    modal.id = modalId;
+    modal.innerHTML = '<div class="modal" style="max-width:600px;max-height:80vh;overflow-y:auto;">' +
+        '<div class="modal-header"><span>Group Clients by Company</span>' +
+        '<button class="modal-close" onclick="document.getElementById(\'' + modalId + '\').remove()">&times;</button></div>' +
+        '<div class="modal-body">' + body + '</div>' +
+        '<div class="modal-footer">' +
+            '<button class="btn btn-secondary" onclick="document.getElementById(\'' + modalId + '\').remove()">Cancel</button>' +
+            (candidateGroups.length ? '<button class="btn btn-primary" onclick="executeGroupByCompany(' + JSON.stringify(candidateGroups.map(function(g){ return g.clients.map(function(c){ return c.id; }); })).replace(/"/g, '&quot;') + ')">Merge Selected</button>' : '') +
+        '</div></div>';
+    document.body.appendChild(modal);
+}
+
+function executeGroupByCompany(groupClientIdsArr) {
+    var selected = Array.from(document.querySelectorAll('.group-check:checked'));
+    if (selected.length === 0) { alert('Select at least one group.'); return; }
+    var totalCounts = { invoices: 0, jobs: 0, bookings: 0, merged: 0, parents: 0 };
+
+    selected.forEach(function(cb) {
+        var idx = parseInt(cb.getAttribute('data-group'), 10);
+        var parentName = document.getElementById('group-name-' + idx).value.trim();
+        var clientIds = groupClientIdsArr[idx] || [];
+        if (!parentName || clientIds.length === 0) return;
+
+        // Create parent
+        var clients = getData('clients');
+        var parent = {
+            id: generateId(),
+            name: parentName,
+            headOffice: '',
+            contacts: [], sites: [],
+            notes: 'Parent company created by Group by Company',
+            createdAt: new Date().toISOString()
+        };
+        clients.push(parent);
+        setData('clients', clients);
+        totalCounts.parents++;
+
+        clientIds.forEach(function(sid) {
+            var c = mergeClients(sid, parent.id);
+            if (c) {
+                totalCounts.invoices += c.invoices;
+                totalCounts.jobs += c.jobs;
+                totalCounts.bookings += c.bookings;
+                totalCounts.merged++;
+            }
+        });
+    });
+
+    document.getElementById('modal-group-company').remove();
+    alert('Done. Created ' + totalCounts.parents + ' parent compan' + (totalCounts.parents===1?'y':'ies') +
+        ', merged ' + totalCounts.merged + ' client' + (totalCounts.merged===1?'':'s') +
+        '. Moved ' + totalCounts.invoices + ' invoice(s), ' + totalCounts.jobs + ' job(s), ' + totalCounts.bookings + ' booking(s).');
+    renderClients();
+}
+
 function deleteClient(id) {
     if (!confirm('Delete this client and all their sites/contacts? This cannot be undone.')) return;
     let clients = getData('clients').filter(c => c.id !== id);
@@ -3995,6 +4201,7 @@ function renderClients(search) {
             <td>${jobCount}</td>
             <td class="action-btns" onclick="event.stopPropagation()">
                 <button class="btn btn-secondary btn-sm" onclick="openModal('client','${c.id}')">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="openMergeClient('${c.id}')" title="Merge this into a parent company">Merge</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteClient('${c.id}')">Delete</button>
             </td>
         </tr>`;
