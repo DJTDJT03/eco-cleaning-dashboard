@@ -2272,6 +2272,19 @@ function toggleMobileMenu(force) {
         </div>
 
         <div class="card" style="margin-top:24px;">
+            <div class="card-header">Xero Integration</div>
+            <div style="padding:16px;">
+                <div id="xero-status" style="margin-bottom:12px;font-size:13px;color:var(--gray-500);">Checking connection...</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-primary" id="xero-connect-btn" onclick="connectXero()">Connect to Xero</button>
+                    <button class="btn btn-secondary" id="xero-sync-btn" onclick="syncFromXero()" style="display:none;">Sync Paid Status from Xero</button>
+                    <button class="btn btn-danger btn-sm" id="xero-disconnect-btn" onclick="disconnectXero()" style="display:none;">Disconnect</button>
+                </div>
+                <div style="font-size:11px;color:var(--gray-500);margin-top:10px;">Once connected, push any draft invoice straight to Xero. "Sync Paid Status" pulls back any invoice marked paid/authorised in Xero in the last 12 months.</div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:24px;">
             <div class="card-header">
                 <span>Company Certifications</span>
                 <button class="btn btn-primary btn-sm" onclick="addCompanyCert()">+ Add Cert</button>
@@ -4390,6 +4403,13 @@ function renderInvoices(filter) {
             actions += `<button class="btn btn-success btn-sm" onclick="convertToInvoice('${inv.id}')" title="Convert to Invoice">&#8594; Inv</button>`;
         }
         if (!inv.isQuote) actions += '<button class="btn btn-accent btn-sm" onclick="createCreditNote(\'' + inv.id + '\')" title="Credit Note">CN</button>';
+        if (!inv.isQuote && window._xeroConnected) {
+            if (inv.xeroInvoiceId) {
+                actions += '<button class="btn btn-secondary btn-sm" disabled title="Already pushed to Xero">Xero ✓</button>';
+            } else {
+                actions += '<button class="btn btn-primary btn-sm" onclick="pushInvoiceToXero(\'' + inv.id + '\', this)" title="Push draft to Xero">&#8594; Xero</button>';
+            }
+        }
         actions += '<button class="btn btn-danger btn-sm" onclick="deleteInvoice(\'' + inv.id + '\')">Del</button>';
 
         return `<tr>
@@ -6704,6 +6724,113 @@ async function sendWhatsAppToAll() {
     alert('Done. ' + ok + ' sent, ' + fail + ' failed.' + (fail > 0 ? '\n\nTip: for Twilio sandbox, recipients must first WhatsApp "join past-mill" to +1 415 523 8886.' : ''));
 }
 
+// ========== XERO INTEGRATION ==========
+async function refreshXeroStatus() {
+    var statusEl = document.getElementById('xero-status');
+    if (!statusEl) return;
+    try {
+        var res = await fetch('/api/xero-status');
+        var data = await res.json();
+        if (data.connected) {
+            var when = data.connected_at ? new Date(data.connected_at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+            statusEl.innerHTML = '<span style="color:var(--success);font-weight:600;">&#10003; Connected</span> to <strong>' + esc(data.tenant_name || '') + '</strong>' + (when ? ' (since ' + when + ')' : '');
+            document.getElementById('xero-connect-btn').style.display = 'none';
+            document.getElementById('xero-sync-btn').style.display = '';
+            document.getElementById('xero-disconnect-btn').style.display = '';
+            window._xeroConnected = true;
+        } else {
+            statusEl.innerHTML = '<span style="color:var(--gray-500);">Not connected.</span>';
+            document.getElementById('xero-connect-btn').style.display = '';
+            document.getElementById('xero-sync-btn').style.display = 'none';
+            document.getElementById('xero-disconnect-btn').style.display = 'none';
+            window._xeroConnected = false;
+        }
+    } catch(e) {
+        statusEl.textContent = 'Could not reach /api/xero-status. Make sure Vercel env vars are set.';
+    }
+    renderInvoices();
+}
+
+function connectXero() {
+    window.location.href = '/api/xero-auth';
+}
+
+async function disconnectXero() {
+    if (!confirm('Disconnect from Xero? Local invoices are not affected.')) return;
+    await fetch('/api/xero-status', { method: 'DELETE' });
+    refreshXeroStatus();
+}
+
+async function syncFromXero() {
+    var btn = document.getElementById('xero-sync-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Syncing...'; }
+    try {
+        var res = await fetch('/api/xero-sync');
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Sync failed');
+        var xMap = data.invoices || {};
+        var invoices = getData('invoices');
+        var changed = 0;
+        invoices.forEach(function(inv) {
+            if (!inv.number) return;
+            var x = xMap[inv.number];
+            if (!x) return;
+            var newStatus = (x.status || '').toLowerCase();
+            if (newStatus === 'paid' && inv.status !== 'paid') { inv.status = 'paid'; inv.xeroAmountPaid = x.amountPaid; changed++; }
+            else if (newStatus === 'authorised' && inv.status === 'draft') { inv.status = 'sent'; changed++; }
+        });
+        setData('invoices', invoices);
+        alert('Sync complete. ' + changed + ' invoice' + (changed===1?'':'s') + ' updated.');
+        renderInvoices();
+    } catch(e) {
+        alert('Xero sync failed: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Sync Paid Status from Xero'; }
+    }
+}
+
+async function pushInvoiceToXero(invoiceId, btnEl) {
+    var invoice = getData('invoices').find(function(i){ return i.id === invoiceId; });
+    if (!invoice) return;
+    var client = invoice.clientId ? getData('clients').find(function(c){ return c.id === invoice.clientId; }) : null;
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Pushing...'; }
+    try {
+        var res = await fetch('/api/xero-push-invoice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invoice: invoice, client: client })
+        });
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Push failed');
+        // Mark invoice as pushed
+        var list = getData('invoices');
+        var idx = list.findIndex(function(i){ return i.id === invoiceId; });
+        if (idx !== -1) {
+            list[idx].xeroInvoiceId = data.xero_invoice_id;
+            list[idx].xeroPushedAt = new Date().toISOString();
+            if (data.xero_number) list[idx].number = data.xero_number;
+            setData('invoices', list);
+        }
+        if (btnEl) { btnEl.textContent = 'Pushed ✓'; }
+        renderInvoices();
+    } catch(e) {
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Retry Push'; }
+        alert('Push to Xero failed: ' + e.message);
+    }
+}
+
+// Auto-check status when settings tab loaded
+var _origLoadSettingsForXero = window.loadSettings;
+
+// Handle ?xero=connected redirect
+if (typeof window !== 'undefined' && location.search.indexOf('xero=connected') !== -1) {
+    setTimeout(function() {
+        showSection('settings');
+        setTimeout(refreshXeroStatus, 200);
+        history.replaceState({}, '', location.pathname);
+    }, 500);
+}
+
 // ========== QUICK WHATSAPP (ad-hoc) ==========
 window._quickWaContext = null;
 
@@ -8921,6 +9048,7 @@ function saveSettingsData(data) {
 }
 
 function loadSettings() {
+    if (typeof refreshXeroStatus === 'function') refreshXeroStatus();
     var s = getSettings();
     document.getElementById('set-company-name').value = s.companyName || '';
     document.getElementById('set-company-number').value = s.companyNumber || '';
