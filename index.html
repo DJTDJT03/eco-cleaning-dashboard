@@ -2279,6 +2279,7 @@ function toggleMobileMenu(force) {
                     <button class="btn btn-primary" id="xero-connect-btn" onclick="connectXero()">Connect to Xero</button>
                     <button class="btn btn-secondary" id="xero-sync-btn" onclick="syncFromXero()" style="display:none;">Sync Paid Status from Xero</button>
                     <button class="btn btn-secondary" id="xero-import-contacts-btn" onclick="importContactsFromXero()" style="display:none;">Import Clients from Xero</button>
+                    <button class="btn btn-secondary" id="xero-import-invoices-btn" onclick="importInvoicesFromXero()" style="display:none;">Import Invoices from Xero</button>
                     <button class="btn btn-danger btn-sm" id="xero-disconnect-btn" onclick="disconnectXero()" style="display:none;">Disconnect</button>
                 </div>
                 <div style="font-size:11px;color:var(--gray-500);margin-top:10px;">Once connected, push any draft invoice straight to Xero. "Sync Paid Status" pulls back any invoice marked paid/authorised in Xero in the last 12 months.</div>
@@ -2584,6 +2585,13 @@ function toggleMobileMenu(force) {
                     <label>Site</label>
                     <select id="invoice-site-select"><option value="">All sites / General</option></select>
                 </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Tender / Site P&amp;L <span style="color:var(--gray-400);font-weight:400;">(links revenue to site reports)</span></label>
+                    <select id="invoice-tender-ref"><option value="">(not linked)</option></select>
+                </div>
+                <div class="form-group"></div>
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -3570,6 +3578,13 @@ function openModal(type, id, isQuote) {
         }
         document.getElementById('invoice-doc-type').onchange = updateInvModalTitle;
         populateClientSelect('invoice-client');
+        // Populate tender dropdown
+        var tenderSel = document.getElementById('invoice-tender-ref');
+        if (tenderSel) {
+            var tList = getData('tenders');
+            tenderSel.innerHTML = '<option value="">(not linked)</option>' +
+                tList.map(function(t){ return '<option value="' + t.id + '">' + esc(t.name || '-') + '</option>'; }).join('');
+        }
 
         if (id) {
             const inv = getData('invoices').find(x => x.id === id);
@@ -3584,6 +3599,7 @@ function openModal(type, id, isQuote) {
                 document.getElementById('invoice-due-date').value = inv.dueDate || '';
                 document.getElementById('invoice-notes').value = inv.notes || '';
                 document.getElementById('invoice-is-quote').value = inv.isQuote;
+                if (tenderSel) tenderSel.value = inv.tenderRef || '';
                 document.getElementById('invoice-vat-enabled').checked = !!inv.vatEnabled;
                 document.getElementById('invoice-vat-rate').value = inv.vatRate || 20;
                 document.getElementById('invoice-items').innerHTML = '';
@@ -4231,13 +4247,20 @@ function saveInvoice() {
         const idx = invoices.findIndex(i => i.id === id);
         if (!invoice.number) invoice.number = invoices[idx].number;
         invoice.createdAt = invoices[idx].createdAt;
-        // Preserve tender-linked fields
-        invoice.tenderRef = invoices[idx].tenderRef;
+        // Preserve tender-linked fields (allow user override via the dropdown)
+        var tenderSelValEl = document.getElementById('invoice-tender-ref');
+        var userChoseTender = tenderSelValEl ? tenderSelValEl.value : '';
+        invoice.tenderRef = userChoseTender || invoices[idx].tenderRef || '';
         invoice.scheme = invoices[idx].scheme;
         invoice.cleanType = invoices[idx].cleanType;
+        // Preserve Xero linkage
+        invoice.xeroInvoiceId = invoices[idx].xeroInvoiceId;
+        invoice.xeroPushedAt = invoices[idx].xeroPushedAt;
         invoices[idx] = invoice;
     } else {
         if (!invoice.number) invoice.number = generateInvoiceNumber(isQuote);
+        var tenderSelNewEl = document.getElementById('invoice-tender-ref');
+        if (tenderSelNewEl && tenderSelNewEl.value) invoice.tenderRef = tenderSelNewEl.value;
         invoices.push(invoice);
     }
     setData('invoices', invoices);
@@ -6739,6 +6762,7 @@ async function refreshXeroStatus() {
             document.getElementById('xero-sync-btn').style.display = '';
             document.getElementById('xero-disconnect-btn').style.display = '';
             var imp = document.getElementById('xero-import-contacts-btn'); if (imp) imp.style.display = '';
+            var impI = document.getElementById('xero-import-invoices-btn'); if (impI) impI.style.display = '';
             window._xeroConnected = true;
         } else {
             statusEl.innerHTML = '<span style="color:var(--gray-500);">Not connected.</span>';
@@ -6746,6 +6770,7 @@ async function refreshXeroStatus() {
             document.getElementById('xero-sync-btn').style.display = 'none';
             document.getElementById('xero-disconnect-btn').style.display = 'none';
             var imp2 = document.getElementById('xero-import-contacts-btn'); if (imp2) imp2.style.display = 'none';
+            var impI2 = document.getElementById('xero-import-invoices-btn'); if (impI2) impI2.style.display = 'none';
             window._xeroConnected = false;
         }
     } catch(e) {
@@ -6854,6 +6879,113 @@ async function importContactsFromXero() {
         alert('Import failed: ' + e.message);
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Import Clients from Xero'; }
+    }
+}
+
+async function importInvoicesFromXero() {
+    var btn = document.getElementById('xero-import-invoices-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Importing...'; }
+    try {
+        var res = await fetch('/api/xero-import-invoices');
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Import failed');
+        var xInvs = data.invoices || [];
+        if (xInvs.length === 0) { alert('No invoices found in Xero in the last 24 months.'); return; }
+
+        var clients = getData('clients');
+        var invoices = getData('invoices');
+
+        // Build lookup indexes
+        var clientByXeroId = {};
+        var clientByName = {};
+        clients.forEach(function(c) {
+            if (c.xeroId) clientByXeroId[c.xeroId] = c;
+            if (c.name) clientByName[c.name.toLowerCase().trim()] = c;
+        });
+        var invByXeroId = {};
+        var invByNumber = {};
+        invoices.forEach(function(i) {
+            if (i.xeroInvoiceId) invByXeroId[i.xeroInvoiceId] = i;
+            if (i.number) invByNumber[i.number.toLowerCase().trim()] = i;
+        });
+
+        function statusMap(xStatus) {
+            var s = (xStatus || '').toLowerCase();
+            if (s === 'paid') return 'paid';
+            if (s === 'authorised' || s === 'submitted') return 'sent';
+            if (s === 'voided' || s === 'deleted') return 'voided';
+            return 'draft';
+        }
+
+        var added = 0, updated = 0, skipped = 0, newClients = 0;
+        xInvs.forEach(function(x) {
+            if ((x.status || '').toUpperCase() === 'DELETED') { skipped++; return; }
+
+            // Find / create client
+            var client = x.xero_contact_id ? clientByXeroId[x.xero_contact_id] : null;
+            if (!client && x.xero_contact_name) client = clientByName[x.xero_contact_name.toLowerCase().trim()];
+            if (!client && x.xero_contact_name) {
+                client = {
+                    id: generateId(),
+                    name: x.xero_contact_name,
+                    xeroId: x.xero_contact_id,
+                    contacts: [], sites: [],
+                    notes: 'Auto-created during Xero invoice import',
+                    createdAt: new Date().toISOString()
+                };
+                clients.push(client);
+                clientByXeroId[x.xero_contact_id] = client;
+                clientByName[x.xero_contact_name.toLowerCase().trim()] = client;
+                newClients++;
+            }
+
+            var existing = invByXeroId[x.xero_id] || (x.xero_number && invByNumber[x.xero_number.toLowerCase().trim()]);
+            if (existing) {
+                // Update live fields without overwriting user-added links
+                existing.xeroInvoiceId = x.xero_id;
+                existing.number = x.xero_number || existing.number;
+                existing.date = x.date || existing.date;
+                existing.dueDate = x.due_date || existing.dueDate;
+                existing.status = statusMap(x.status);
+                existing.total = x.total;
+                existing.xeroAmountPaid = x.amount_paid;
+                existing.xeroAmountDue = x.amount_due;
+                if (client && !existing.clientId) existing.clientId = client.id;
+                if (!existing.items || existing.items.length === 0) {
+                    existing.items = (x.line_items || []).map(function(li){ return { desc: li.desc, qty: li.qty, rate: li.rate }; });
+                }
+                updated++;
+            } else {
+                invoices.push({
+                    id: generateId(),
+                    xeroInvoiceId: x.xero_id,
+                    number: x.xero_number || '',
+                    clientId: client ? client.id : '',
+                    isQuote: false,
+                    status: statusMap(x.status),
+                    date: x.date,
+                    dueDate: x.due_date,
+                    notes: x.reference || '',
+                    items: (x.line_items || []).map(function(li){ return { desc: li.desc, qty: li.qty, rate: li.rate }; }),
+                    total: x.total,
+                    xeroAmountPaid: x.amount_paid,
+                    xeroAmountDue: x.amount_due,
+                    importedAt: new Date().toISOString(),
+                    createdAt: new Date().toISOString()
+                });
+                added++;
+            }
+        });
+
+        setData('clients', clients);
+        setData('invoices', invoices);
+        alert('Xero invoice import complete.\n\nAdded: ' + added + '\nUpdated: ' + updated + '\nSkipped: ' + skipped + '\nNew clients auto-created: ' + newClients + '\n\nTip: edit each imported invoice and set its Tender/Site to have it counted on Site P&L.');
+        if (typeof renderInvoices === 'function') renderInvoices();
+        if (typeof renderClients === 'function') renderClients();
+    } catch(e) {
+        alert('Invoice import failed: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Import Invoices from Xero'; }
     }
 }
 
