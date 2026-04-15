@@ -5455,35 +5455,60 @@ function parseTenderData(rows, fileName) {
 
     const header = rows[0].map(h => String(h || '').trim().toLowerCase());
     const plotIdx = header.findIndex(h => h === 'plot');
-    const typeIdx = header.findIndex(h => h.includes('house') || h.includes('type'));
+    const typeIdx = header.findIndex(h => h === 'occu' || h === 'occupancy' || h.includes('house') || h.includes('type'));
     const bedsIdx = header.findIndex(h => h.includes('bedroom'));
     const storeyIdx = header.findIndex(h => h.includes('storey'));
-    // Our rates - must NOT contain "sub"
-    const buildIdx = header.findIndex(h => h.includes('build') && !h.includes('sub'));
-    const recleanIdx = header.findIndex(h => h.includes('reclean') && !h.includes('sub'));
-    const sparkleIdx = header.findIndex(h => h.includes('sparkle') && !h.includes('sub'));
-    const additionalIdx = header.findIndex(h => h.includes('additional') && !h.includes('sub'));
     const totalIdx = header.findIndex(h => h.includes('total') && !h.includes('sub'));
-    // Sub-contractor rates
-    const subBuildIdx = header.findIndex(h => h.includes('sub') && h.includes('build'));
-    const subRecleanIdx = header.findIndex(h => h.includes('sub') && h.includes('reclean'));
-    const subSparkleIdx = header.findIndex(h => h.includes('sub') && h.includes('sparkle'));
-    const subAdditionalIdx = header.findIndex(h => h.includes('sub') && h.includes('additional'));
-    const subTotalIdx = header.findIndex(h => h.includes('sub') && h.includes('total'));
-    // Completion / invoiced status columns (optional) - look for "invoiced", "done", "completed"
+
+    // Find the column groups for each clean type. For each named column
+    // (Build / Re-clean / Sparkle / Additional / Windows) we look forward
+    // for the NEXT "pay" column (sub rate) and the NEXT "date" column (completion).
+    function findCleanGroup(predicate) {
+        var nameIdx = header.findIndex(predicate);
+        if (nameIdx < 0) return null;
+        var subIdx = -1, dateIdx = -1;
+        for (var j = nameIdx + 1; j < header.length; j++) {
+            var h = header[j];
+            // Stop scanning if we hit the next named clean type column
+            if (j !== nameIdx + 1 && /^(build|re-?clean|sparkle|additi|windows|extras|notes)/.test(h)) break;
+            if (h === 'pay' && subIdx < 0) subIdx = j;
+            else if (h.startsWith('date') && dateIdx < 0) dateIdx = j;
+        }
+        return { rate: nameIdx, sub: subIdx, date: dateIdx };
+    }
+    var groups = {
+        build: findCleanGroup(function(h){ return h === 'build' || (h.indexOf('build') === 0 && !h.includes('sub')); }),
+        reclean: findCleanGroup(function(h){ return h === 're-clean' || h === 'reclean' || (h.includes('reclean') && !h.includes('sub')); }),
+        sparkle: findCleanGroup(function(h){ return h === 'sparkle'; }),
+        additional: findCleanGroup(function(h){ return h.indexOf('addit') === 0 || (h.includes('additional') && !h.includes('sub')) || h.includes('additioanal'); }),
+        windows: findCleanGroup(function(h){ return h === 'windows'; })
+    };
+
+    // Sub rate / done column shortcuts (for the simpler "Sub Build / Build Done" style)
+    var legacy = {
+        subBuildIdx: header.findIndex(h => h.includes('sub') && h.includes('build')),
+        subRecleanIdx: header.findIndex(h => h.includes('sub') && h.includes('reclean')),
+        subSparkleIdx: header.findIndex(h => h.includes('sub') && h.includes('sparkle')),
+        subAdditionalIdx: header.findIndex(h => h.includes('sub') && h.includes('additional')),
+        subTotalIdx: header.findIndex(h => h.includes('sub') && h.includes('total'))
+    };
     function findStatusCol(type) {
         return header.findIndex(h => h.includes(type) && (h.includes('invoiced') || h.includes('done') || h.includes('completed') || h.includes('paid')));
     }
-    const buildDoneIdx = findStatusCol('build');
-    const recleanDoneIdx = findStatusCol('reclean');
-    const sparkleDoneIdx = findStatusCol('sparkle');
-    const additionalDoneIdx = findStatusCol('additional');
+    var legacyDone = {
+        build: findStatusCol('build'),
+        reclean: findStatusCol('reclean'),
+        sparkle: findStatusCol('sparkle'),
+        additional: findStatusCol('additional')
+    };
+
     function isDone(val) {
         if (val === null || val === undefined || val === '') return false;
         var s = String(val).trim().toLowerCase();
         if (s === 'y' || s === 'yes' || s === 'true' || s === 'done' || s === 'completed' || s === '1' || s === 'x' || s === 'invoiced' || s === 'paid') return true;
-        // Date string → done
         if (!isNaN(Date.parse(s))) return true;
+        // dd.mm.yy or dd/mm/yy etc.
+        if (/^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}$/.test(s)) return true;
         return false;
     }
     var preInvoiced = {};
@@ -5499,29 +5524,57 @@ function parseTenderData(rows, fileName) {
         const plotVal = plotIdx >= 0 ? row[plotIdx] : '';
         const typeVal = typeIdx >= 0 ? String(row[typeIdx] || '').trim() : '';
 
-        if (plotVal && !isNaN(plotVal) && typeVal) {
-            plots.push({
-                plot: Number(plotVal),
-                houseType: typeVal,
-                bedrooms: bedsIdx >= 0 ? Number(row[bedsIdx]) || 0 : 0,
-                storey: storeyIdx >= 0 ? Number(row[storeyIdx]) || 0 : 0,
-                build: buildIdx >= 0 ? parseCurrency(row[buildIdx]) : 0,
-                reclean: recleanIdx >= 0 ? parseCurrency(row[recleanIdx]) : 0,
-                sparkle: sparkleIdx >= 0 ? parseCurrency(row[sparkleIdx]) : 0,
-                additional: additionalIdx >= 0 ? parseCurrency(row[additionalIdx]) : 0,
-                total: totalIdx >= 0 ? parseCurrency(row[totalIdx]) : 0,
-                subBuild: subBuildIdx >= 0 ? parseCurrency(row[subBuildIdx]) : 0,
-                subReclean: subRecleanIdx >= 0 ? parseCurrency(row[subRecleanIdx]) : 0,
-                subSparkle: subSparkleIdx >= 0 ? parseCurrency(row[subSparkleIdx]) : 0,
-                subAdditional: subAdditionalIdx >= 0 ? parseCurrency(row[subAdditionalIdx]) : 0,
-                subTotal: subTotalIdx >= 0 ? parseCurrency(row[subTotalIdx]) : 0
-            });
-            // Capture done/invoiced flags from the row
+        if (plotVal && !isNaN(plotVal)) {
             var pn = Number(plotVal);
-            if (buildDoneIdx >= 0 && isDone(row[buildDoneIdx])) { preInvoiced[pn + '_build'] = { ref: 'Historical', date: '' }; preSignoffs[pn + '_build'] = { status: 'signedoff', date: '' }; }
-            if (recleanDoneIdx >= 0 && isDone(row[recleanDoneIdx])) { preInvoiced[pn + '_reclean'] = { ref: 'Historical', date: '' }; preSignoffs[pn + '_reclean'] = { status: 'signedoff', date: '' }; }
-            if (sparkleDoneIdx >= 0 && isDone(row[sparkleDoneIdx])) { preInvoiced[pn + '_sparkle'] = { ref: 'Historical', date: '' }; preSignoffs[pn + '_sparkle'] = { status: 'signedoff', date: '' }; }
-            if (additionalDoneIdx >= 0 && isDone(row[additionalDoneIdx])) { preInvoiced[pn + '_additional'] = { ref: 'Historical', date: '' }; preSignoffs[pn + '_additional'] = { status: 'signedoff', date: '' }; }
+            var bedrooms = 0;
+            // Try to derive bedrooms from "4B7P" style
+            var bedMatch = /^(\d+)b/.exec(typeVal.toLowerCase());
+            if (bedMatch) bedrooms = parseInt(bedMatch[1], 10);
+            if (bedsIdx >= 0 && Number(row[bedsIdx])) bedrooms = Number(row[bedsIdx]);
+
+            var p = {
+                plot: pn,
+                houseType: typeVal,
+                bedrooms: bedrooms,
+                storey: storeyIdx >= 0 ? Number(row[storeyIdx]) || 0 : 0,
+                build: 0, reclean: 0, sparkle: 0, additional: 0, windows: 0,
+                subBuild: 0, subReclean: 0, subSparkle: 0, subAdditional: 0, subWindows: 0,
+                buildDate: '', recleanDate: '', sparkleDate: '', additionalDate: '', windowsDate: '',
+                total: 0, subTotal: 0
+            };
+
+            ['build','reclean','sparkle','additional','windows'].forEach(function(t) {
+                var g = groups[t];
+                if (!g) return;
+                if (g.rate >= 0) p[t] = parseCurrency(row[g.rate]);
+                var subKey = 'sub' + t.charAt(0).toUpperCase() + t.slice(1);
+                if (g.sub >= 0) p[subKey] = parseCurrency(row[g.sub]);
+                if (g.date >= 0 && row[g.date]) {
+                    var dv = String(row[g.date]).trim();
+                    if (dv) p[t + 'Date'] = dv;
+                    if (isDone(row[g.date]) && t !== 'windows') {
+                        preInvoiced[pn + '_' + t] = { ref: 'Historical', date: dv };
+                        preSignoffs[pn + '_' + t] = { status: 'signedoff', date: dv };
+                    }
+                }
+            });
+
+            // Legacy fallback for the old "Sub Build" / "Build Done" templates
+            if (p.subBuild === 0 && legacy.subBuildIdx >= 0) p.subBuild = parseCurrency(row[legacy.subBuildIdx]);
+            if (p.subReclean === 0 && legacy.subRecleanIdx >= 0) p.subReclean = parseCurrency(row[legacy.subRecleanIdx]);
+            if (p.subSparkle === 0 && legacy.subSparkleIdx >= 0) p.subSparkle = parseCurrency(row[legacy.subSparkleIdx]);
+            if (p.subAdditional === 0 && legacy.subAdditionalIdx >= 0) p.subAdditional = parseCurrency(row[legacy.subAdditionalIdx]);
+            ['build','reclean','sparkle','additional'].forEach(function(t) {
+                if (legacyDone[t] >= 0 && isDone(row[legacyDone[t]]) && !preInvoiced[pn+'_'+t]) {
+                    preInvoiced[pn + '_' + t] = { ref: 'Historical', date: '' };
+                    preSignoffs[pn + '_' + t] = { status: 'signedoff', date: '' };
+                }
+            });
+
+            p.total = (totalIdx >= 0 ? parseCurrency(row[totalIdx]) : 0) || (p.build + p.reclean + p.sparkle + p.additional + p.windows);
+            p.subTotal = (legacy.subTotalIdx >= 0 ? parseCurrency(row[legacy.subTotalIdx]) : 0) || (p.subBuild + p.subReclean + p.subSparkle + p.subAdditional + p.subWindows);
+
+            plots.push(p);
         } else if (!plotVal && typeVal && typeVal.length > 0) {
             // Extra line items (like corridors, windows)
             const extraTotal = totalIdx >= 0 ? parseCurrency(row[totalIdx]) : 0;
