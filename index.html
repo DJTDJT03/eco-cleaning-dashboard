@@ -1565,8 +1565,9 @@ function toggleMobileMenu(force) {
     <div id="section-schedule" class="section">
         <div class="page-header">
             <h1>Weekly Schedule</h1>
-            <div style="display:flex;gap:12px;align-items:center;">
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
                 <button class="btn btn-accent" onclick="generateMonthlyInvoices()">Generate Monthly Invoices</button>
+                <button class="btn btn-secondary" onclick="openSendScheduleModal()">Send Weekly Schedule</button>
                 <button class="btn btn-primary" onclick="openModal('booking')">+ New Booking</button>
             </div>
         </div>
@@ -2971,6 +2972,30 @@ function toggleMobileMenu(force) {
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeModal('cert')">Cancel</button>
             <button class="btn btn-primary" onclick="saveCert()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Send Weekly Schedule Modal -->
+<div class="modal-overlay" id="modal-send-schedule">
+    <div class="modal" style="max-width:720px;">
+        <div class="modal-header">
+            <span>Send Weekly Schedule</span>
+            <button class="modal-close" onclick="closeModal('send-schedule')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Message</label>
+                <textarea id="send-schedule-message" rows="8" style="font-family:monospace;font-size:12px;"></textarea>
+                <div style="font-size:11px;color:var(--gray-500);margin-top:4px;">Edit freely. Each recipient below will receive this exact text.</div>
+            </div>
+            <div class="form-group">
+                <label>Recipients — tap the green button next to each to open SMS or WhatsApp on your phone</label>
+                <div id="send-schedule-recipients" style="border:1px solid var(--gray-200);border-radius:6px;max-height:300px;overflow-y:auto;"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('send-schedule')">Close</button>
         </div>
     </div>
 </div>
@@ -6451,6 +6476,102 @@ function markBookingDay(bookingId, dateStr, done) {
 function isBookingCompleted(bookingId, dateStr) {
     const completions = getData('bookingCompletions');
     return completions.some(c => c.key === bookingId + '_' + dateStr);
+}
+
+// ========== SEND WEEKLY SCHEDULE ==========
+function buildWeeklyScheduleText() {
+    var bookings = getData('bookings');
+    var clients = getData('clients');
+    var weekEnd = new Date(currentWeekStart); weekEnd.setDate(weekEnd.getDate() + 6);
+    var dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    var lines = ['Weekly Schedule — ' +
+        currentWeekStart.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' to ' +
+        weekEnd.toLocaleDateString('en-GB',{day:'numeric',month:'short'})];
+    lines.push('');
+    for (var dayIdx = 0; dayIdx < 7; dayIdx++) {
+        var d = new Date(currentWeekStart); d.setDate(d.getDate() + dayIdx);
+        var dStr = d.toISOString().slice(0,10);
+        var jobs = [];
+        bookings.forEach(function(b) {
+            var matches = false;
+            if (b.recurring && Array.isArray(b.days) && b.days.indexOf(dayNames[dayIdx]) !== -1) matches = true;
+            if (b.date === dStr) matches = true;
+            if (matches) {
+                var c = clients.find(function(cl){ return cl.id === b.clientId; });
+                var label = (b.name || 'Booking') + (c ? ' (' + c.name + ')' : '') + (b.time ? ' @ ' + b.time : '') + (b.crew ? ' - ' + b.crew : '');
+                jobs.push(label);
+            }
+        });
+        if (jobs.length) {
+            lines.push(dayNames[dayIdx] + ' ' + d.getDate() + '/' + (d.getMonth()+1) + ':');
+            jobs.forEach(function(j) { lines.push('  - ' + j); });
+        }
+    }
+    if (lines.length === 2) lines.push('(No scheduled bookings this week)');
+    var settings = getSettings();
+    lines.push('');
+    lines.push('— ' + (settings.companyName || 'ECS'));
+    return lines.join('\n');
+}
+
+function normalisePhone(p) {
+    if (!p) return '';
+    var cleaned = p.replace(/[^0-9+]/g, '');
+    if (!cleaned) return '';
+    // UK: convert 07xxx or 447xxx -> +447xxx
+    if (cleaned.indexOf('+') === 0) return cleaned;
+    if (cleaned.indexOf('00') === 0) return '+' + cleaned.slice(2);
+    if (cleaned.indexOf('0') === 0) return '+44' + cleaned.slice(1);
+    if (cleaned.indexOf('44') === 0) return '+' + cleaned;
+    return '+' + cleaned;
+}
+
+function openSendScheduleModal() {
+    document.getElementById('send-schedule-message').value = buildWeeklyScheduleText();
+    renderScheduleRecipients();
+    document.getElementById('modal-send-schedule').classList.add('active');
+}
+
+function renderScheduleRecipients() {
+    var list = document.getElementById('send-schedule-recipients');
+    if (!list) return;
+    var people = [];
+    getData('staff').forEach(function(s) { if (s.phone) people.push({ name: s.name, phone: s.phone, role: 'Staff' }); });
+    getData('subcontractors').forEach(function(s) { if (s.phone) people.push({ name: s.name, phone: s.phone, role: 'Sub-Contractor' }); });
+    getData('tradesDirectory').forEach(function(t) { if (t.phone) people.push({ name: t.name || t.company, phone: t.phone, role: 'Trade' }); });
+
+    if (people.length === 0) {
+        list.innerHTML = '<div style="padding:20px;color:var(--gray-400);text-align:center;font-size:13px;">No phone numbers saved on staff, sub-contractors, or trades. Add phones on their profiles first.</div>';
+        return;
+    }
+    var html = '<table style="width:100%;font-size:13px;">';
+    people.forEach(function(p, i) {
+        var norm = normalisePhone(p.phone);
+        html += '<tr style="border-bottom:1px solid var(--gray-100);">' +
+            '<td style="padding:8px 12px;"><strong>' + esc(p.name) + '</strong><div style="font-size:11px;color:var(--gray-500);">' + esc(p.role) + ' &middot; ' + esc(p.phone) + '</div></td>' +
+            '<td style="padding:8px 12px;text-align:right;white-space:nowrap;">' +
+                '<button class="btn btn-primary btn-sm" onclick="sendVia(\'sms\',\'' + norm + '\')">SMS</button> ' +
+                '<button class="btn btn-accent btn-sm" onclick="sendVia(\'wa\',\'' + norm + '\')">WhatsApp</button>' +
+            '</td></tr>';
+    });
+    html += '</table>';
+    list.innerHTML = html;
+}
+
+function sendVia(channel, phone) {
+    var msg = document.getElementById('send-schedule-message').value || '';
+    if (!phone) { alert('No phone number on record.'); return; }
+    var url;
+    if (channel === 'wa') {
+        // WhatsApp wants no + and no spaces
+        var waPhone = phone.replace(/[^0-9]/g, '');
+        url = 'https://wa.me/' + waPhone + '?text=' + encodeURIComponent(msg);
+    } else {
+        // sms: link - iOS uses &, Android uses ?
+        var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        url = 'sms:' + phone + (isIOS ? '&' : '?') + 'body=' + encodeURIComponent(msg);
+    }
+    window.open(url, '_blank');
 }
 
 function renderSchedule() {
