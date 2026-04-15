@@ -1708,6 +1708,17 @@ function toggleMobileMenu(force) {
             </div>
         </div>
 
+        <!-- Site P&L overview -->
+        <div class="report-grid">
+            <div class="report-card" style="grid-column: span 2;">
+                <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>Site P&amp;L &mdash; Per Tender</span>
+                    <span style="font-size:12px;font-weight:400;color:var(--gray-500);">Revenue, costs and margin for every tender</span>
+                </h3>
+                <div id="report-site-pnl" style="overflow-x:auto;"></div>
+            </div>
+        </div>
+
         <!-- Row 3: Breakdowns -->
         <div class="report-grid">
             <div class="report-card" style="grid-column: span 2;">
@@ -6108,6 +6119,7 @@ function getPeriodStart() {
 }
 
 function renderReports() {
+    renderSitePnLTable();
     const invoices = getData('invoices');
     const jobs = getData('jobs');
     const clients = getData('clients');
@@ -11659,40 +11671,260 @@ function deleteInduction(type, entityId, idx) {
 }
 
 // ========== FEATURE 9: Material/Supply Costs ==========
-function renderCostsTab(tenderId) {
+function renderSitePnLTable() {
+    var el = document.getElementById('report-site-pnl');
+    if (!el) return;
     var tenders = getData('tenders');
-    var tender = tenders.find(function(t) { return t.id === tenderId; });
-    if (!tender) return '<div class="empty-state"><p>Tender not found.</p></div>';
-    var costs = tender.costs || [];
-    var totalCosts = costs.reduce(function(s, c) { return s + (c.amount || 0); }, 0);
-    var tenderValue = tender.grandTotal || 0;
-    var profit = tenderValue - totalCosts;
+    if (tenders.length === 0) { el.innerHTML = '<div style="padding:20px;color:var(--gray-400);text-align:center;">No tenders yet.</div>'; return; }
 
+    var rows = tenders.map(function(t) { return computeSitePnL(t.id); }).filter(Boolean);
+    rows.sort(function(a, b){ return b.revenue.total - a.revenue.total; });
+
+    var grand = rows.reduce(function(acc, r) {
+        acc.tenderValue += r.tenderValue;
+        acc.revenue += r.revenue.total;
+        acc.paid += r.revenue.paid;
+        acc.cost += r.totalCost;
+        return acc;
+    }, { tenderValue: 0, revenue: 0, paid: 0, cost: 0 });
+    var grandMargin = grand.revenue - grand.cost;
+    var grandPct = grand.revenue > 0 ? (grandMargin / grand.revenue * 100) : 0;
+
+    var html = '<table class="tender-data-table" style="width:100%;margin-top:8px;"><thead><tr>' +
+        '<th>Tender / Site</th><th style="text-align:right;">Tender Value</th><th style="text-align:right;">Revenue</th><th style="text-align:right;">Paid</th><th style="text-align:right;">Costs</th><th style="text-align:right;">Margin</th><th style="text-align:right;">%</th>' +
+        '</tr></thead><tbody>';
+    rows.forEach(function(r) {
+        var color = r.margin >= 0 ? 'var(--success)' : 'var(--danger)';
+        html += '<tr style="cursor:pointer;" onclick="showSection(\'tenders\');viewTender(\'' + r.tender.id + '\');showTenderTab(\'costs\');">' +
+            '<td><strong>' + esc(r.tender.name || '-') + '</strong></td>' +
+            '<td style="text-align:right;">' + fmtGBP(r.tenderValue) + '</td>' +
+            '<td style="text-align:right;">' + fmtGBP(r.revenue.total) + '</td>' +
+            '<td style="text-align:right;color:var(--gray-600);">' + fmtGBP(r.revenue.paid) + '</td>' +
+            '<td style="text-align:right;">' + fmtGBP(r.totalCost) + '</td>' +
+            '<td style="text-align:right;color:' + color + ';font-weight:600;">' + fmtGBP(r.margin) + '</td>' +
+            '<td style="text-align:right;color:' + color + ';font-weight:600;">' + r.marginPct.toFixed(1) + '%</td></tr>';
+    });
+    html += '</tbody><tfoot><tr style="background:var(--gray-50);font-weight:700;">' +
+        '<td>TOTAL</td>' +
+        '<td style="text-align:right;">' + fmtGBP(grand.tenderValue) + '</td>' +
+        '<td style="text-align:right;">' + fmtGBP(grand.revenue) + '</td>' +
+        '<td style="text-align:right;">' + fmtGBP(grand.paid) + '</td>' +
+        '<td style="text-align:right;">' + fmtGBP(grand.cost) + '</td>' +
+        '<td style="text-align:right;color:' + (grandMargin >= 0 ? 'var(--success)' : 'var(--danger)') + ';">' + fmtGBP(grandMargin) + '</td>' +
+        '<td style="text-align:right;color:' + (grandMargin >= 0 ? 'var(--success)' : 'var(--danger)') + ';">' + grandPct.toFixed(1) + '%</td>' +
+        '</tr></tfoot></table>';
+    el.innerHTML = html;
+}
+
+function computeSitePnL(tenderId) {
+    var tender = getData('tenders').find(function(t){ return t.id === tenderId; });
+    if (!tender) return null;
+    var invoices = getData('invoices').filter(function(i){ return !i.isQuote && i.tenderRef === tenderId; });
+    var subInvoices = getData('subInvoices');
+
+    var revenue = { paid: 0, sent: 0, draft: 0, total: 0, items: [] };
+    invoices.forEach(function(i) {
+        var total = i.total || 0;
+        if (i.status === 'paid') revenue.paid += total;
+        else if (i.status === 'sent' || i.status === 'overdue') revenue.sent += total;
+        else revenue.draft += total;
+        revenue.total += total;
+        revenue.items.push(i);
+    });
+
+    var allocations = [];
+    subInvoices.forEach(function(inv) {
+        (inv.allocations || []).forEach(function(a) {
+            if (a.tenderId === tenderId) {
+                allocations.push({
+                    subInvoiceId: inv.id,
+                    subName: inv.name,
+                    invoiceNum: inv.invoiceNum || inv.number || '',
+                    date: inv.date,
+                    amount: parseFloat(a.amount) || 0,
+                    notes: a.notes || ''
+                });
+            }
+        });
+    });
+    var allocatedCost = allocations.reduce(function(s,a){ return s + a.amount; }, 0);
+
+    var directCosts = tender.costs || [];
+    var directCostTotal = directCosts.reduce(function(s, c){ return s + (parseFloat(c.amount) || 0); }, 0);
+
+    var totalCost = allocatedCost + directCostTotal;
+    var margin = revenue.total - totalCost;
+    var marginPct = revenue.total > 0 ? (margin / revenue.total) * 100 : 0;
+
+    return {
+        tender: tender,
+        tenderValue: tender.grandTotal || 0,
+        revenue: revenue,
+        allocations: allocations,
+        allocatedCost: allocatedCost,
+        directCosts: directCosts,
+        directCostTotal: directCostTotal,
+        totalCost: totalCost,
+        margin: margin,
+        marginPct: marginPct
+    };
+}
+
+function renderCostsTab(tenderId) {
+    var d = computeSitePnL(tenderId);
+    if (!d) return '<div class="empty-state"><p>Tender not found.</p></div>';
+
+    var marginColor = d.margin >= 0 ? 'var(--success)' : 'var(--danger)';
     var html = '<div style="padding:16px;">';
-    html += '<div class="stats-grid" style="margin-bottom:16px;">';
-    html += '<div class="stat-card"><div class="label">Total Costs</div><div class="value">' + fmtGBP(totalCosts) + '</div></div>';
-    html += '<div class="stat-card"><div class="label">Tender Value</div><div class="value">' + fmtGBP(tenderValue) + '</div></div>';
-    html += '<div class="stat-card" style="border-color:' + (profit >= 0 ? 'var(--success)' : 'var(--danger)') + ';"><div class="label">Actual Profit</div><div class="value" style="color:' + (profit >= 0 ? 'var(--success)' : 'var(--danger)') + ';">' + fmtGBP(profit) + '</div></div>';
+    html += '<div class="stats-grid" style="margin-bottom:16px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">';
+    html += '<div class="stat-card"><div class="label">Tender Value</div><div class="value">' + fmtGBP(d.tenderValue) + '</div></div>';
+    html += '<div class="stat-card"><div class="label">Revenue Invoiced</div><div class="value" style="color:var(--primary);">' + fmtGBP(d.revenue.total) + '</div><div style="font-size:11px;color:var(--gray-500);margin-top:4px;">' + fmtGBP(d.revenue.paid) + ' paid &middot; ' + fmtGBP(d.revenue.sent) + ' outstanding</div></div>';
+    html += '<div class="stat-card"><div class="label">Total Costs</div><div class="value" style="color:var(--danger);">' + fmtGBP(d.totalCost) + '</div><div style="font-size:11px;color:var(--gray-500);margin-top:4px;">' + fmtGBP(d.allocatedCost) + ' sub-invoices &middot; ' + fmtGBP(d.directCostTotal) + ' direct</div></div>';
+    html += '<div class="stat-card" style="border:2px solid ' + marginColor + ';"><div class="label">Margin</div><div class="value" style="color:' + marginColor + ';">' + fmtGBP(d.margin) + '</div><div style="font-size:11px;color:var(--gray-500);margin-top:4px;">' + d.marginPct.toFixed(1) + '%</div></div>';
     html += '</div>';
-    html += '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">';
-    html += '<button class="btn btn-primary btn-sm" onclick="addTenderCost(\'' + tenderId + '\')">+ Add Cost</button></div>';
-    if (costs.length === 0) {
-        html += '<div class="empty-state"><p>No costs recorded yet.</p></div>';
+
+    // Revenue table
+    html += '<h3 style="font-size:14px;margin:20px 0 8px;color:var(--gray-700);">Revenue &mdash; Invoices</h3>';
+    if (d.revenue.items.length === 0) {
+        html += '<div style="padding:16px;border:1px dashed var(--gray-300);border-radius:6px;color:var(--gray-500);text-align:center;font-size:13px;">No invoices raised against this tender yet.</div>';
     } else {
-        html += '<table class="tender-data-table"><thead><tr><th>Description</th><th>Category</th><th>Amount</th><th>Date</th><th>Actions</th></tr></thead><tbody>';
-        for (var i = 0; i < costs.length; i++) {
-            var c = costs[i];
+        html += '<table class="tender-data-table"><thead><tr><th>Invoice #</th><th>Date</th><th>Status</th><th style="text-align:right;">Amount</th></tr></thead><tbody>';
+        d.revenue.items.forEach(function(i) {
+            html += '<tr>' +
+                '<td>' + esc(i.number || '-') + '</td>' +
+                '<td>' + (i.date ? formatDate(i.date) : '') + '</td>' +
+                '<td><span class="badge badge-' + (i.status || 'draft') + '">' + esc(i.status || 'draft') + '</span></td>' +
+                '<td style="text-align:right;">' + fmtGBP(i.total || 0) + '</td></tr>';
+        });
+        html += '</tbody></table>';
+    }
+
+    // Allocated sub-invoices
+    html += '<h3 style="font-size:14px;margin:24px 0 8px;color:var(--gray-700);display:flex;justify-content:space-between;align-items:center;">' +
+        '<span>Costs &mdash; Allocated Sub-Contractor Invoices</span>' +
+        '<button class="btn btn-primary btn-sm" onclick="openAllocateSubInvoiceModal(\'' + tenderId + '\')">+ Allocate Sub-Invoice</button>' +
+        '</h3>';
+    if (d.allocations.length === 0) {
+        html += '<div style="padding:16px;border:1px dashed var(--gray-300);border-radius:6px;color:var(--gray-500);text-align:center;font-size:13px;">No sub-contractor invoices allocated to this site yet.</div>';
+    } else {
+        html += '<table class="tender-data-table"><thead><tr><th>Sub-Contractor</th><th>Invoice #</th><th>Date</th><th>Notes</th><th style="text-align:right;">Amount</th><th></th></tr></thead><tbody>';
+        d.allocations.forEach(function(a) {
+            html += '<tr>' +
+                '<td>' + esc(a.subName || '-') + '</td>' +
+                '<td>' + esc(a.invoiceNum || '') + '</td>' +
+                '<td>' + (a.date ? formatDate(a.date) : '') + '</td>' +
+                '<td>' + esc(a.notes || '') + '</td>' +
+                '<td style="text-align:right;">' + fmtGBP(a.amount) + '</td>' +
+                '<td><button class="btn btn-danger btn-sm" onclick="removeAllocation(\'' + a.subInvoiceId + '\',\'' + tenderId + '\')">&times;</button></td>' +
+                '</tr>';
+        });
+        html += '</tbody></table>';
+    }
+
+    // Direct costs
+    html += '<h3 style="font-size:14px;margin:24px 0 8px;color:var(--gray-700);display:flex;justify-content:space-between;align-items:center;">' +
+        '<span>Direct Costs (materials, hire, misc)</span>' +
+        '<button class="btn btn-secondary btn-sm" onclick="addTenderCost(\'' + tenderId + '\')">+ Add Direct Cost</button>' +
+        '</h3>';
+    if (d.directCosts.length === 0) {
+        html += '<div style="padding:16px;border:1px dashed var(--gray-300);border-radius:6px;color:var(--gray-500);text-align:center;font-size:13px;">No direct costs recorded.</div>';
+    } else {
+        html += '<table class="tender-data-table"><thead><tr><th>Description</th><th>Category</th><th>Date</th><th style="text-align:right;">Amount</th><th></th></tr></thead><tbody>';
+        for (var i = 0; i < d.directCosts.length; i++) {
+            var c = d.directCosts[i];
             html += '<tr>' +
                 '<td>' + esc(c.description || '') + '</td>' +
                 '<td><span class="badge badge-progress">' + esc(c.category || '') + '</span></td>' +
-                '<td>' + fmtGBP(c.amount || 0) + '</td>' +
-                '<td>' + formatDate(c.date) + '</td>' +
+                '<td>' + (c.date ? formatDate(c.date) : '') + '</td>' +
+                '<td style="text-align:right;">' + fmtGBP(c.amount || 0) + '</td>' +
                 '<td><button class="btn btn-danger btn-sm" onclick="deleteTenderCost(\'' + tenderId + '\',' + i + ')">&times;</button></td></tr>';
         }
         html += '</tbody></table>';
     }
+
     html += '</div>';
     return html;
+}
+
+function openAllocateSubInvoiceModal(tenderId) {
+    var subInvoices = getData('subInvoices').slice().sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
+    var tender = getData('tenders').find(function(t){ return t.id === tenderId; });
+    if (subInvoices.length === 0) { alert('No sub-contractor invoices on record. Upload or add one on the Paysheet page first.'); return; }
+
+    var modal = document.getElementById('modal-allocate-sub');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.id = 'modal-allocate-sub';
+        modal.innerHTML = '<div class="modal" style="max-width:640px;">' +
+            '<div class="modal-header"><span>Allocate Sub-Invoice to Site</span>' +
+            '<button class="modal-close" onclick="document.getElementById(\'modal-allocate-sub\').classList.remove(\'active\')">&times;</button></div>' +
+            '<div class="modal-body">' +
+                '<div class="form-group"><label>Sub-Contractor Invoice</label>' +
+                '<select id="alloc-sub-select"></select></div>' +
+                '<div id="alloc-sub-info" style="padding:8px 10px;background:var(--gray-50);border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--gray-600);"></div>' +
+                '<div class="form-row"><div class="form-group"><label>Amount to allocate to this site</label>' +
+                '<input type="number" id="alloc-sub-amount" step="0.01" min="0"></div>' +
+                '<div class="form-group"><label>Notes (optional)</label>' +
+                '<input type="text" id="alloc-sub-notes" placeholder="e.g. Plots 1-12 only"></div></div>' +
+                '<div id="alloc-sub-status" style="font-size:12px;color:var(--gray-500);"></div>' +
+            '</div>' +
+            '<div class="modal-footer">' +
+                '<button class="btn btn-secondary" onclick="document.getElementById(\'modal-allocate-sub\').classList.remove(\'active\')">Cancel</button>' +
+                '<button class="btn btn-primary" onclick="confirmAllocateSubInvoice()">Allocate</button>' +
+            '</div></div>';
+        document.body.appendChild(modal);
+    }
+
+    var sel = document.getElementById('alloc-sub-select');
+    sel.innerHTML = subInvoices.map(function(s) {
+        var allocated = (s.allocations||[]).reduce(function(sum,a){ return sum + (parseFloat(a.amount)||0); }, 0);
+        var remaining = (parseFloat(s.amount)||0) - allocated;
+        return '<option value="' + s.id + '" data-amount="' + (s.amount||0) + '" data-remaining="' + remaining + '">' +
+            esc(s.name || 'Unknown') + ' - ' + fmtGBP(s.amount||0) + ' - ' + (s.date ? formatDate(s.date) : '') + ' (remaining: ' + fmtGBP(remaining) + ')' +
+            '</option>';
+    }).join('');
+
+    sel.onchange = function() {
+        var opt = sel.options[sel.selectedIndex];
+        var remaining = parseFloat(opt.getAttribute('data-remaining')) || 0;
+        document.getElementById('alloc-sub-amount').value = remaining > 0 ? remaining.toFixed(2) : '';
+        document.getElementById('alloc-sub-info').textContent = 'Unallocated remainder on this invoice: ' + fmtGBP(remaining);
+    };
+    sel.onchange();
+
+    document.getElementById('alloc-sub-notes').value = '';
+    document.getElementById('alloc-sub-status').textContent = '';
+    modal.setAttribute('data-tender', tenderId);
+    modal.classList.add('active');
+}
+
+function confirmAllocateSubInvoice() {
+    var modal = document.getElementById('modal-allocate-sub');
+    var tenderId = modal.getAttribute('data-tender');
+    var subId = document.getElementById('alloc-sub-select').value;
+    var amount = parseFloat(document.getElementById('alloc-sub-amount').value);
+    var notes = document.getElementById('alloc-sub-notes').value.trim();
+    if (!subId) return;
+    if (isNaN(amount) || amount <= 0) { document.getElementById('alloc-sub-status').innerHTML = '<span style="color:var(--danger);">Amount must be greater than 0</span>'; return; }
+    var subs = getData('subInvoices');
+    var idx = subs.findIndex(function(s){ return s.id === subId; });
+    if (idx === -1) return;
+    if (!subs[idx].allocations) subs[idx].allocations = [];
+    subs[idx].allocations.push({ tenderId: tenderId, amount: amount, notes: notes, allocatedAt: new Date().toISOString() });
+    setData('subInvoices', subs);
+    modal.classList.remove('active');
+    if (currentTenderId) { viewTender(currentTenderId); showTenderTab('costs'); }
+}
+
+function removeAllocation(subInvoiceId, tenderId) {
+    if (!confirm('Remove this allocation?')) return;
+    var subs = getData('subInvoices');
+    var idx = subs.findIndex(function(s){ return s.id === subInvoiceId; });
+    if (idx === -1) return;
+    subs[idx].allocations = (subs[idx].allocations || []).filter(function(a){ return a.tenderId !== tenderId; });
+    setData('subInvoices', subs);
+    if (currentTenderId) { viewTender(currentTenderId); showTenderTab('costs'); }
 }
 
 function addTenderCost(tenderId) {
