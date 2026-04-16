@@ -5454,9 +5454,9 @@ function parseTenderData(rows, fileName) {
     }
 
     const header = rows[0].map(h => String(h || '').trim().toLowerCase());
-    const plotIdx = header.findIndex(h => h === 'plot');
+    const plotIdx = header.findIndex(h => h === 'plot' || h === 'plots' || h === 'plot #' || h === 'plot no' || h === 'plot number');
     const typeIdx = header.findIndex(h => h === 'occu' || h === 'occupancy' || h.includes('house') || h.includes('type'));
-    const bedsIdx = header.findIndex(h => h.includes('bedroom'));
+    const bedsIdx = header.findIndex(h => h === 'bed' || h === 'beds' || h.includes('bedroom'));
     const storeyIdx = header.findIndex(h => h.includes('storey'));
     const totalIdx = header.findIndex(h => h.includes('total') && !h.includes('sub'));
 
@@ -5527,14 +5527,17 @@ function parseTenderData(rows, fileName) {
         if (plotVal && !isNaN(plotVal)) {
             var pn = Number(plotVal);
             var bedrooms = 0;
-            // Try to derive bedrooms from "4B7P" style
-            var bedMatch = /^(\d+)b/.exec(typeVal.toLowerCase());
+            // Try to derive bedrooms from "4B7P" style first
+            var bedMatch = /^(\d+)b/.exec(String(typeVal || '').toLowerCase());
             if (bedMatch) bedrooms = parseInt(bedMatch[1], 10);
+            // Then check an explicit Bed column
             if (bedsIdx >= 0 && Number(row[bedsIdx])) bedrooms = Number(row[bedsIdx]);
+            // Friendly default house type when none given
+            var effectiveType = typeVal || (bedrooms ? bedrooms + ' bed' : '');
 
             var p = {
                 plot: pn,
-                houseType: typeVal,
+                houseType: effectiveType,
                 bedrooms: bedrooms,
                 storey: storeyIdx >= 0 ? Number(row[storeyIdx]) || 0 : 0,
                 build: 0, reclean: 0, sparkle: 0, additional: 0, windows: 0,
