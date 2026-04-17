@@ -3853,7 +3853,7 @@ function populateClientSelect(selectId) {
     const current = sel.value;
     sel.innerHTML = '<option value="">Select client...</option>';
     clients.forEach(c => {
-        sel.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+        sel.innerHTML += `<option value="${esc(c.id)}">${esc(c.name)}</option>`;
     });
     sel.value = current;
 }
@@ -8917,7 +8917,7 @@ function printMonthlyPaysheet() {
     var w = window.open();
     var s = getSettings();
     w.document.write('<html><head><title>Monthly Pay Sheet</title><style>body{font-family:-apple-system,sans-serif;padding:20px;font-size:13px;}table{width:100%;border-collapse:collapse;}th,td{padding:4px 8px;text-align:left;border-bottom:1px solid #ddd;}th{border-bottom:2px solid #999;color:#666;}h1{font-size:18px;margin-bottom:4px;}h2{font-size:14px;margin:16px 0 8px;}@media print{.no-print{display:none;}}</style></head><body>');
-    if (s.companyName) w.document.write('<h1>' + s.companyName + '</h1>');
+    if (s.companyName) w.document.write('<h1>' + esc(s.companyName) + '</h1>');
     w.document.write(container.innerHTML.replace(/class="[^"]*"/g, '').replace(/onclick="[^"]*"/g, '').replace(/<button[^>]*>.*?<\/button>/g, ''));
     w.document.write('</body></html>');
     w.document.close();
@@ -9637,9 +9637,9 @@ function viewSubcontractor(id) {
     var bankLine = '';
     if (sc.bankName || sc.bankSort || sc.bankAccount) {
         var parts = [];
-        if (sc.bankName) parts.push(sc.bankName);
-        if (sc.bankSort) parts.push('Sort: ' + sc.bankSort);
-        if (sc.bankAccount) parts.push('Acc: ' + sc.bankAccount);
+        if (sc.bankName) parts.push(esc(sc.bankName));
+        if (sc.bankSort) parts.push('Sort: ' + esc(sc.bankSort));
+        if (sc.bankAccount) parts.push('Acc: ' + esc(sc.bankAccount));
         bankLine = parts.join(' | ');
     } else {
         bankLine = '<span style="color:var(--danger);">No bank details added</span>';
