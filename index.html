@@ -2361,7 +2361,11 @@ function toggleMobileMenu(force) {
                 <button class="btn btn-secondary" onclick="exportAllData()">Export All Data (JSON)</button>
                 <button class="btn btn-secondary" onclick="document.getElementById('import-data-input').click()">Import Data (JSON)</button>
                 <input type="file" id="import-data-input" accept=".json" style="display:none" onchange="importAllData(this)">
+                <button class="btn btn-secondary" onclick="openBackupRestore()">Restore from Backup</button>
                 <button class="btn btn-danger" onclick="clearAllData()">Clear All Data</button>
+            </div>
+            <div style="padding:0 20px 16px;font-size:12px;color:var(--gray-500);">
+                Auto-backups run daily and are kept for 30 days. Use "Restore from Backup" to roll back, or "Export All Data" to download a copy.
             </div>
         </div>
 
@@ -2445,6 +2449,25 @@ function toggleMobileMenu(force) {
                 </thead>
                 <tbody id="credit-notes-table"></tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<!-- Restore from Backup Modal -->
+<div class="modal-overlay" id="modal-backups">
+    <div class="modal" style="max-width:720px;">
+        <div class="modal-header">
+            <span>Restore from Backup</span>
+            <button class="modal-close" onclick="closeModal('backups')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="font-size:13px;color:var(--gray-500);margin-bottom:12px;">
+                Restoring will replace your current data with the snapshot. A safety backup of your current data is saved first.
+            </div>
+            <div id="backup-list" style="font-size:13px;">Loading backups...</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('backups')">Close</button>
         </div>
     </div>
 </div>
@@ -3361,8 +3384,27 @@ async function _flushSync() {
     }
 }
 
+window._quotaWarned = false;
 localStorage.setItem = function(k, v) {
-    window._origSetItem(k, v);
+    try {
+        window._origSetItem(k, v);
+    } catch(err) {
+        if (err && (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014)) {
+            if (!window._quotaWarned) {
+                window._quotaWarned = true;
+                setTimeout(function() {
+                    alert('Browser storage is full. Your latest change was NOT saved locally.\n\nGood news: your data still syncs to the cloud. To free space, open Settings > Data Management and Export All Data, then Clear All Data (your cloud backup will be preserved).');
+                    window._quotaWarned = false;
+                }, 0);
+            }
+            // Still try to push to cloud so the change isn't lost entirely
+            if (typeof k === 'string' && k.indexOf('cb_') === 0 && k !== 'cb_welcomed') {
+                _scheduleSync(k, v);
+            }
+            return;
+        }
+        throw err;
+    }
     if (typeof k === 'string' && k.indexOf('cb_') === 0 && k !== 'cb_welcomed') {
         _scheduleSync(k, v);
     }
@@ -5070,6 +5112,73 @@ async function maybeRunAutoBackup() {
         pruneOldBackups();
     } catch(e) { console.warn('Auto-backup skipped:', e.message); }
 }
+async function openBackupRestore() {
+    document.getElementById('modal-backups').classList.add('active');
+    var listEl = document.getElementById('backup-list');
+    listEl.textContent = 'Loading backups...';
+    if (!window._sb) {
+        listEl.textContent = 'Cloud connection unavailable. Backups can only be listed when online.';
+        return;
+    }
+    try {
+        var res = await window._sb.from('app_data').select('key, value, updated_at').like('key', 'cb__backup_%').order('updated_at', { ascending: false });
+        if (res.error) throw res.error;
+        var rows = res.data || [];
+        if (rows.length === 0) {
+            listEl.textContent = 'No backups found yet. Auto-backups run when you open the dashboard.';
+            return;
+        }
+        var html = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--gray-100);"><th style="text-align:left;padding:8px 4px;">When</th><th style="text-align:left;padding:8px 4px;">Type</th><th style="text-align:left;padding:8px 4px;">Records</th><th></th></tr></thead><tbody>';
+        rows.forEach(function(r) {
+            var v = r.value || {};
+            var when = v.createdAt ? new Date(v.createdAt) : new Date(r.updated_at);
+            var label = v.label ? v.label : 'Auto';
+            var keyCount = v.data ? Object.keys(v.data).length : 0;
+            var safeKey = r.key.replace(/'/g, "\\'");
+            html += '<tr style="border-bottom:1px solid var(--gray-100);">';
+            html += '<td style="padding:8px 4px;">' + when.toLocaleString() + '</td>';
+            html += '<td style="padding:8px 4px;">' + label + '</td>';
+            html += '<td style="padding:8px 4px;">' + keyCount + '</td>';
+            html += '<td style="padding:8px 4px;text-align:right;"><button class="btn btn-secondary btn-sm" onclick="restoreFromBackup(\'' + safeKey + '\')">Restore</button></td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        listEl.innerHTML = html;
+    } catch(e) {
+        listEl.textContent = 'Failed to load backups: ' + e.message;
+    }
+}
+
+async function restoreFromBackup(key) {
+    if (!confirm('Restore this backup? Your current data will be replaced.\n\nA safety snapshot of your current data is saved first, so you can roll back.')) return;
+    try {
+        var listEl = document.getElementById('backup-list');
+        if (listEl) listEl.textContent = 'Restoring...';
+        var res = await window._sb.from('app_data').select('value').eq('key', key).single();
+        if (res.error) throw res.error;
+        var snap = res.data && res.data.value && res.data.value.data;
+        if (!snap) throw new Error('Backup is empty or corrupt.');
+        await runManualBackupSilent('pre-restore');
+        // Remove current cb_ data (preserving backups + lastBackup)
+        var keysToRemove = [];
+        for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf('cb_') === 0 && k.indexOf('cb__backup_') !== 0 && k !== 'cb__lastBackup') {
+                keysToRemove.push(k);
+            }
+        }
+        keysToRemove.forEach(function(k) { localStorage.removeItem(k); });
+        // Apply snapshot
+        Object.keys(snap).forEach(function(k) {
+            localStorage.setItem(k, snap[k]);
+        });
+        alert('Restore complete. Page will reload.');
+        location.reload();
+    } catch(e) {
+        alert('Restore failed: ' + e.message);
+    }
+}
+
 async function pruneOldBackups() {
     try {
         if (!window._sb) return;
@@ -10153,16 +10262,18 @@ function exportAllData() {
     a.download = 'eco-cleaning-backup-' + new Date().toISOString().split('T')[0] + '.json';
     a.click();
     URL.revokeObjectURL(url);
+    try { localStorage.setItem('cb__lastExport', new Date().toISOString()); } catch(_) {}
 }
 
 function importAllData(input) {
     var file = input.files[0];
     if (!file) return;
-    if (!confirm('This will REPLACE all current data with the imported file. Continue?')) { input.value = ''; return; }
+    if (!confirm('Import this backup? Existing keys with the same name will be overwritten; other current data is kept.\n\nA safety snapshot of your current data will be saved first.')) { input.value = ''; return; }
     var reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
         try {
             var data = JSON.parse(e.target.result);
+            try { await runManualBackupSilent('pre-import'); } catch(_) {}
             Object.keys(data).forEach(function(key) {
                 localStorage.setItem(key, data[key]);
             });
@@ -10176,16 +10287,42 @@ function importAllData(input) {
     input.value = '';
 }
 
-function clearAllData() {
-    if (!confirm('DELETE ALL DATA? This cannot be undone. Are you sure?')) return;
-    if (!confirm('FINAL WARNING: All clients, jobs, invoices, tenders, settings will be permanently deleted.')) return;
+async function runManualBackupSilent(label) {
+    var snap = _snapshotAllData();
+    if (Object.keys(snap).length === 0) return;
+    var tag = label ? '_' + label : '';
+    var row = { key: 'cb__backup_' + _todayStr() + tag + '_' + Date.now(), value: { createdAt: new Date().toISOString(), label: label || null, data: snap }, updated_at: new Date().toISOString() };
+    if (window._sb) {
+        var res = await window._sb.from('app_data').upsert([row], { onConflict: 'key' });
+        if (res.error) throw res.error;
+    }
+    localStorage.setItem('cb__lastBackup', _todayStr());
+}
+
+async function clearAllData() {
+    var word = prompt('This will permanently delete ALL clients, jobs, invoices, tenders, and settings, locally AND from the cloud.\n\nAuto-backups (last 30 days) will be preserved so you can restore.\n\nType DELETE to confirm:');
+    if (word !== 'DELETE') {
+        if (word !== null) alert('Cancelled (you must type DELETE exactly).');
+        return;
+    }
+    var btn = document.querySelector('button[onclick="clearAllData()"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Backing up first...'; }
+    try {
+        await runManualBackupSilent('pre-clear');
+    } catch(e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Clear All Data'; }
+        if (!confirm('Could not save a safety backup (' + e.message + ').\n\nContinue with delete anyway?')) return;
+    }
     var keysToRemove = [];
     for (var i = 0; i < localStorage.length; i++) {
         var key = localStorage.key(i);
-        if (key.startsWith('cb_')) keysToRemove.push(key);
+        // Preserve backup snapshots and the lastBackup marker so the user can restore
+        if (key && key.indexOf('cb_') === 0 && key.indexOf('cb__backup_') !== 0 && key !== 'cb__lastBackup') {
+            keysToRemove.push(key);
+        }
     }
     keysToRemove.forEach(function(k) { localStorage.removeItem(k); });
-    alert('All data cleared. Page will reload.');
+    alert('All data cleared. A pre-clear backup is available under "Restore from Backup". Page will reload.');
     location.reload();
 }
 
