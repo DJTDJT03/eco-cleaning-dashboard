@@ -1479,6 +1479,26 @@ function toggleMobileMenu(force) {
             </div>
         </div>
 
+        <div class="card" id="cashflow-card" style="margin-bottom:16px;">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Cashflow</span>
+                <span id="cashflow-summary" style="font-size:12px;color:var(--gray-500);font-weight:500;"></span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--gray-100);">
+                <div style="padding:16px 20px;border-right:1px solid var(--gray-100);">
+                    <div style="font-size:12px;color:var(--gray-500);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Expected (next 30 days)</div>
+                    <div id="cashflow-expected" style="font-size:26px;font-weight:700;color:var(--success);margin-top:4px;">£0</div>
+                    <div id="cashflow-expected-count" style="font-size:12px;color:var(--gray-500);"></div>
+                </div>
+                <div style="padding:16px 20px;">
+                    <div style="font-size:12px;color:var(--danger);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Overdue – chase now</div>
+                    <div id="cashflow-overdue" style="font-size:26px;font-weight:700;color:var(--danger);margin-top:4px;">£0</div>
+                    <div id="cashflow-overdue-count" style="font-size:12px;color:var(--gray-500);"></div>
+                </div>
+            </div>
+            <div id="chase-list" style="border-top:1px solid var(--gray-100);"></div>
+        </div>
+
         <div class="card" style="margin-bottom:16px;">
             <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
                 <span>Recent WhatsApp Sends</span>
@@ -5293,6 +5313,9 @@ function refreshDashboard() {
     // Date
     document.getElementById('dashboard-date').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
+    // Cashflow + chase list
+    renderCashflow();
+
     // Dashboard alerts
     renderDashboardAlerts();
 
@@ -5363,6 +5386,114 @@ function refreshDashboard() {
     // Refresh this week summary and nav badges
     if (typeof renderThisWeekSummary === 'function') renderThisWeekSummary();
     if (typeof updateNavBadges === 'function') updateNavBadges();
+}
+
+// ========== CASHFLOW + CHASE ==========
+function _invOutstandingAmount(inv) {
+    // Prefer Xero-reported outstanding if we have it; otherwise fall back to total
+    if (typeof inv.xeroAmountDue === 'number' && inv.xeroAmountDue > 0) return inv.xeroAmountDue;
+    if (typeof inv.total === 'number') return inv.total;
+    return 0;
+}
+
+function renderCashflow() {
+    var invoices = getData('invoices').filter(function(i) { return !i.isQuote; });
+    var clients = getData('clients');
+    var today = new Date(); today.setHours(0,0,0,0);
+    var in30 = new Date(today); in30.setDate(in30.getDate() + 30);
+
+    var expectedTotal = 0, expectedCount = 0;
+    var overdue = [];
+
+    invoices.forEach(function(inv) {
+        if (inv.status === 'paid' || inv.status === 'draft' || inv.status === 'voided') return;
+        var amount = _invOutstandingAmount(inv);
+        if (amount <= 0) return;
+        var due = inv.dueDate ? new Date(inv.dueDate + 'T00:00:00') : (inv.date ? new Date(inv.date + 'T00:00:00') : null);
+        if (!due) return;
+        if (due < today || inv.status === 'overdue') {
+            overdue.push({ inv: inv, due: due, amount: amount });
+        } else if (due <= in30) {
+            expectedTotal += amount;
+            expectedCount++;
+        }
+    });
+
+    // Sort overdue: oldest due first (most urgent)
+    overdue.sort(function(a, b) { return a.due - b.due; });
+    var overdueTotal = overdue.reduce(function(s, r) { return s + r.amount; }, 0);
+    var uniqueClients = {};
+    overdue.forEach(function(r) { if (r.inv.clientId) uniqueClients[r.inv.clientId] = true; });
+    var overdueClientCount = Object.keys(uniqueClients).length;
+
+    var el = document.getElementById('cashflow-expected'); if (el) el.textContent = fmtGBP(expectedTotal);
+    var ec = document.getElementById('cashflow-expected-count'); if (ec) ec.textContent = expectedCount + ' invoice' + (expectedCount===1?'':'s') + ' due';
+    var ov = document.getElementById('cashflow-overdue'); if (ov) ov.textContent = fmtGBP(overdueTotal);
+    var oc = document.getElementById('cashflow-overdue-count'); if (oc) oc.textContent = overdue.length + ' invoice' + (overdue.length===1?'':'s') + ' across ' + overdueClientCount + ' client' + (overdueClientCount===1?'':'s');
+    var sum = document.getElementById('cashflow-summary');
+    if (sum) sum.textContent = overdue.length > 0 ? 'Chase the oldest first' : 'All clear';
+
+    var list = document.getElementById('chase-list');
+    if (!list) return;
+    if (overdue.length === 0) {
+        list.innerHTML = '<div style="padding:16px 20px;font-size:13px;color:var(--gray-500);">No overdue invoices. 🎉</div>';
+        return;
+    }
+    var html = '<div style="padding:8px 0;"><div style="display:grid;grid-template-columns:90px 1fr 110px 90px 100px;gap:8px;padding:8px 20px;font-size:11px;color:var(--gray-500);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">'
+        + '<div>Invoice</div><div>Client</div><div>Due</div><div style="text-align:right;">Amount</div><div></div></div>';
+    overdue.slice(0, 10).forEach(function(r) {
+        var inv = r.inv;
+        var client = clients.find(function(c){ return c.id === inv.clientId; });
+        var daysPast = Math.floor((today - r.due) / (1000*60*60*24));
+        var chasedNote = '';
+        if (inv.lastChasedAt) {
+            var days = Math.floor((Date.now() - new Date(inv.lastChasedAt).getTime()) / (1000*60*60*24));
+            chasedNote = days === 0 ? ' · chased today' : (' · chased ' + days + 'd ago');
+        }
+        html += '<div style="display:grid;grid-template-columns:90px 1fr 110px 90px 100px;gap:8px;align-items:center;padding:10px 20px;border-top:1px solid var(--gray-100);font-size:13px;">'
+            + '<div><strong>' + esc(inv.number || '-') + '</strong></div>'
+            + '<div>' + (client ? esc(client.name) : '<span style="color:var(--gray-400);">Unknown</span>') + '</div>'
+            + '<div style="color:var(--danger);">' + formatDate(inv.dueDate || inv.date) + ' <span style="font-size:11px;color:var(--gray-500);">(' + daysPast + 'd)' + esc(chasedNote) + '</span></div>'
+            + '<div style="text-align:right;font-weight:600;">' + fmtGBP(r.amount) + '</div>'
+            + '<div style="text-align:right;"><button class="btn btn-primary btn-sm" onclick="chaseInvoice(\'' + inv.id + '\')">Chase</button></div>'
+            + '</div>';
+    });
+    if (overdue.length > 10) {
+        html += '<div style="padding:10px 20px;font-size:12px;color:var(--gray-500);border-top:1px solid var(--gray-100);">+ ' + (overdue.length - 10) + ' more overdue — see Invoices section.</div>';
+    }
+    html += '</div>';
+    list.innerHTML = html;
+}
+
+function chaseInvoice(invoiceId) {
+    var invoices = getData('invoices');
+    var inv = invoices.find(function(i){ return i.id === invoiceId; });
+    if (!inv) { alert('Invoice not found.'); return; }
+    var clients = getData('clients');
+    var client = clients.find(function(c){ return c.id === inv.clientId; });
+    if (!client) { alert('This invoice has no linked client, so we can\'t look up a contact.'); return; }
+    var contacts = client.contacts || [];
+    var target = contacts.find(function(ct){ return ct.phone && (/invoice|account|finance|director/i.test(ct.role || '')); })
+              || contacts.find(function(ct){ return ct.phone; });
+    if (!target) {
+        alert('No contact with a phone number is saved for ' + client.name + '. Add one on the client record first.');
+        return;
+    }
+    var settings = getSettings();
+    var amount = _invOutstandingAmount(inv);
+    var firstName = (target.name || client.name).split(' ')[0];
+    var sig = '\n\nThanks,\n' + (settings.companyName || 'Eco Cleaning Systems');
+    var msg = 'Hi ' + firstName + ', hope you\'re well. Invoice ' + (inv.number || '') + ' for ' + fmtGBP(amount)
+        + (inv.dueDate ? ' (due ' + formatDate(inv.dueDate) + ')' : '')
+        + ' is showing as outstanding on our books. Could you let me know when to expect payment please?' + sig;
+    // Remember which invoice this chase is tied to so send can stamp lastChasedAt
+    window._chaseContext = { invoiceId: inv.id };
+    openQuickWhatsApp({
+        phone: normalisePhone(target.phone),
+        name: target.name || client.name,
+        role: (target.role || '') + (target.role ? ' · ' : '') + client.name,
+        prefill: msg
+    });
 }
 
 // ========== DASHBOARD ALERTS ==========
@@ -7882,6 +8013,17 @@ async function sendQuickWhatsApp() {
         status.innerHTML = '<span style="color:var(--success);font-weight:600;">\u2713 Sent successfully</span>';
         btn.textContent = 'Sent';
         logWhatsAppSend(phone, msg, true, data.sid || '');
+        // If this send was a chase, stamp the invoice so we show "chased Nd ago"
+        if (window._chaseContext && window._chaseContext.invoiceId) {
+            var invs = getData('invoices');
+            var idx = invs.findIndex(function(i){ return i.id === window._chaseContext.invoiceId; });
+            if (idx !== -1) {
+                invs[idx].lastChasedAt = new Date().toISOString();
+                setData('invoices', invs);
+            }
+            window._chaseContext = null;
+            if (window._currentSection === 'dashboard' && typeof renderCashflow === 'function') renderCashflow();
+        }
         setTimeout(function(){ closeModal('quick-whatsapp'); }, 1200);
     } catch(e) {
         status.innerHTML = '<span style="color:var(--danger);">Failed: ' + esc(e.message) + '</span>';
