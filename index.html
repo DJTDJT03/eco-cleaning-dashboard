@@ -2487,6 +2487,75 @@ function toggleMobileMenu(force) {
     </div>
 </div>
 
+<!-- Commercial Line Item Modal -->
+<div class="modal-overlay" id="modal-commercial-item">
+    <div class="modal" style="max-width:560px;">
+        <div class="modal-header">
+            <span id="commercial-item-modal-title">Add Line Item</span>
+            <button class="modal-close" onclick="closeModal('commercial-item')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="commercial-item-index" value="">
+            <div class="form-group">
+                <label>Phase / Area</label>
+                <input type="text" id="commercial-item-phase" placeholder="e.g. Block A, Level 2">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <input type="text" id="commercial-item-desc" placeholder="e.g. Post-completion clean, common areas">
+            </div>
+            <div class="form-group">
+                <label>Clean Type</label>
+                <select id="commercial-item-clean-type"></select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Quantity</label>
+                    <input type="number" id="commercial-item-qty" step="any" min="0" value="1">
+                </div>
+                <div class="form-group">
+                    <label>Rate (GBP)</label>
+                    <input type="number" id="commercial-item-rate" step="any" min="0" value="0">
+                </div>
+            </div>
+            <div style="background:var(--gray-50);border-radius:8px;padding:12px;font-size:13px;color:var(--gray-600);">
+                Line total: <strong id="commercial-item-total">£0.00</strong>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('commercial-item')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveCommercialLineItem()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Scheme Bulk Modal -->
+<div class="modal-overlay" id="modal-assign-scheme">
+    <div class="modal" style="max-width:480px;">
+        <div class="modal-header">
+            <span>Assign Scheme to Plots</span>
+            <button class="modal-close" onclick="closeModal('assign-scheme')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Scheme</label>
+                <select id="assign-scheme-type"></select>
+            </div>
+            <div class="form-group">
+                <label>Plot range</label>
+                <input type="text" id="assign-scheme-range" placeholder='e.g. "1-50" or "1,2,5,10-20" or "all"'>
+                <div style="font-size:12px;color:var(--gray-500);margin-top:4px;">
+                    Ranges are inclusive. Use commas to combine, or type "all" to apply to every plot.
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('assign-scheme')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveAssignScheme()">Apply</button>
+        </div>
+    </div>
+</div>
+
 <!-- Restore from Backup Modal -->
 <div class="modal-overlay" id="modal-backups">
     <div class="modal" style="max-width:720px;">
@@ -6653,32 +6722,48 @@ function filterInvScheme(scheme) {
 function assignSchemeBulk() {
     const tender = getData('tenders').find(t => t.id === currentTenderId);
     if (!tender) return;
+    var sel = document.getElementById('assign-scheme-type');
+    sel.innerHTML = '';
+    SCHEME_TYPES.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        sel.appendChild(opt);
+    });
+    document.getElementById('assign-scheme-range').value = '';
+    document.getElementById('modal-assign-scheme').classList.add('active');
+    setTimeout(function(){ document.getElementById('assign-scheme-range').focus(); }, 50);
+}
 
-    const scheme = prompt('Assign scheme to which plots?\n\nSchemes: Private, Partnership, Variation Order, Show Home, Welfare, Other\n\nEnter scheme name:');
-    if (!scheme || !SCHEME_TYPES.includes(scheme)) {
-        if (scheme) alert('Invalid scheme. Choose: ' + SCHEME_TYPES.join(', '));
-        return;
-    }
+function saveAssignScheme() {
+    var tender = getData('tenders').find(function(t){ return t.id === currentTenderId; });
+    if (!tender) { closeModal('assign-scheme'); return; }
+    var scheme = document.getElementById('assign-scheme-type').value;
+    var range = document.getElementById('assign-scheme-range').value.trim();
+    if (!scheme) { alert('Choose a scheme.'); return; }
+    if (!range) { alert('Enter a plot range.'); return; }
 
-    const range = prompt('Enter plot range (e.g. "1-50" or "1,2,5,10-20" or "all"):');
-    if (!range) return;
-
-    const plots = [];
+    var plots = [];
     if (range.toLowerCase() === 'all') {
-        tender.plots.forEach(p => plots.push(p.plot));
+        tender.plots.forEach(function(p){ plots.push(p.plot); });
     } else {
-        range.split(',').forEach(part => {
+        var bad = false;
+        range.split(',').forEach(function(part) {
             part = part.trim();
-            if (part.includes('-')) {
-                const [a, b] = part.split('-').map(Number);
-                for (let i = a; i <= b; i++) plots.push(i);
+            if (!part) return;
+            if (part.indexOf('-') !== -1) {
+                var ab = part.split('-').map(Number);
+                if (!isFinite(ab[0]) || !isFinite(ab[1])) { bad = true; return; }
+                for (var i = ab[0]; i <= ab[1]; i++) plots.push(i);
             } else {
-                plots.push(Number(part));
+                var n = Number(part);
+                if (!isFinite(n)) { bad = true; return; }
+                plots.push(n);
             }
         });
+        if (bad) { alert('Range contains non-numbers. Use "1-50", "1,2,5", or "all".'); return; }
     }
-
-    plots.forEach(plotNum => setPlotScheme(currentTenderId, plotNum, scheme));
+    plots.forEach(function(plotNum){ setPlotScheme(currentTenderId, plotNum, scheme); });
+    closeModal('assign-scheme');
     renderTenderTab();
 }
 
@@ -6975,58 +7060,94 @@ function updateTenderStatusBadge(status) {
 // ========== COMMERCIAL TENDER FUNCTIONS ==========
 var COMMERCIAL_CLEAN_TYPES = ['Rough Clean', 'Builders Clean', 'Sparkle Clean', 'Deep Clean', 'Window Clean', 'External Clean', 'Carpet Clean', 'Other'];
 
-function addCommercialLineItem() {
-    var phase = prompt('Phase/Area (e.g. Block A, Level 2):');
-    if (phase === null) return;
-    var desc = prompt('Description:');
-    if (desc === null) return;
-    var cleanType = prompt('Clean Type (' + COMMERCIAL_CLEAN_TYPES.join(', ') + '):');
-    if (cleanType === null) return;
-    var qty = parseFloat(prompt('Quantity:', '1')) || 0;
-    var rate = parseFloat(prompt('Rate (GBP):', '0')) || 0;
-
-    var tenders = getData('tenders');
-    var idx = tenders.findIndex(function(t) { return t.id === currentTenderId; });
-    if (idx === -1) return;
-    if (!tenders[idx].commercialItems) tenders[idx].commercialItems = [];
-    tenders[idx].commercialItems.push({
-        phase: phase,
-        description: desc,
-        cleanType: cleanType,
-        quantity: qty,
-        rate: rate,
-        total: qty * rate,
-        invoiced: false
+function _populateCommercialCleanTypes(selectedValue) {
+    var sel = document.getElementById('commercial-item-clean-type');
+    sel.innerHTML = '';
+    COMMERCIAL_CLEAN_TYPES.forEach(function(ct) {
+        var opt = document.createElement('option');
+        opt.value = ct; opt.textContent = ct;
+        if (ct === selectedValue) opt.selected = true;
+        sel.appendChild(opt);
     });
-    // Recalculate grand total
-    tenders[idx].grandTotal = tenders[idx].commercialItems.reduce(function(s, ci) { return s + (ci.quantity || 0) * (ci.rate || 0); }, 0);
-    setData('tenders', tenders);
-    renderTenderTab();
-    viewTender(currentTenderId);
+}
+
+function _wireCommercialLineTotalPreview() {
+    var qty = document.getElementById('commercial-item-qty');
+    var rate = document.getElementById('commercial-item-rate');
+    var out = document.getElementById('commercial-item-total');
+    function update() {
+        var q = parseFloat(qty.value) || 0;
+        var r = parseFloat(rate.value) || 0;
+        out.textContent = fmtGBP(q * r);
+    }
+    qty.oninput = update;
+    rate.oninput = update;
+    update();
+}
+
+function addCommercialLineItem() {
+    document.getElementById('commercial-item-modal-title').textContent = 'Add Line Item';
+    document.getElementById('commercial-item-index').value = '';
+    document.getElementById('commercial-item-phase').value = '';
+    document.getElementById('commercial-item-desc').value = '';
+    _populateCommercialCleanTypes(COMMERCIAL_CLEAN_TYPES[0]);
+    document.getElementById('commercial-item-qty').value = '1';
+    document.getElementById('commercial-item-rate').value = '0';
+    _wireCommercialLineTotalPreview();
+    document.getElementById('modal-commercial-item').classList.add('active');
+    setTimeout(function(){ document.getElementById('commercial-item-phase').focus(); }, 50);
 }
 
 function editCommercialLineItem(index) {
     var tenders = getData('tenders');
     var idx = tenders.findIndex(function(t) { return t.id === currentTenderId; });
     if (idx === -1) return;
-    var item = tenders[idx].commercialItems[index];
+    var item = tenders[idx].commercialItems && tenders[idx].commercialItems[index];
     if (!item) return;
-    var phase = prompt('Phase/Area:', item.phase);
-    if (phase === null) return;
-    var desc = prompt('Description:', item.description);
-    if (desc === null) return;
-    var cleanType = prompt('Clean Type (' + COMMERCIAL_CLEAN_TYPES.join(', ') + '):', item.cleanType);
-    if (cleanType === null) return;
-    var qty = parseFloat(prompt('Quantity:', item.quantity)) || 0;
-    var rate = parseFloat(prompt('Rate (GBP):', item.rate)) || 0;
-    item.phase = phase;
-    item.description = desc;
-    item.cleanType = cleanType;
-    item.quantity = qty;
-    item.rate = rate;
-    item.total = qty * rate;
+    document.getElementById('commercial-item-modal-title').textContent = 'Edit Line Item';
+    document.getElementById('commercial-item-index').value = String(index);
+    document.getElementById('commercial-item-phase').value = item.phase || '';
+    document.getElementById('commercial-item-desc').value = item.description || '';
+    _populateCommercialCleanTypes(item.cleanType);
+    document.getElementById('commercial-item-qty').value = item.quantity || 0;
+    document.getElementById('commercial-item-rate').value = item.rate || 0;
+    _wireCommercialLineTotalPreview();
+    document.getElementById('modal-commercial-item').classList.add('active');
+    setTimeout(function(){ document.getElementById('commercial-item-phase').focus(); }, 50);
+}
+
+function saveCommercialLineItem() {
+    var indexStr = document.getElementById('commercial-item-index').value;
+    var phase = document.getElementById('commercial-item-phase').value.trim();
+    var desc = document.getElementById('commercial-item-desc').value.trim();
+    var cleanType = document.getElementById('commercial-item-clean-type').value;
+    var qty = parseFloat(document.getElementById('commercial-item-qty').value) || 0;
+    var rate = parseFloat(document.getElementById('commercial-item-rate').value) || 0;
+    if (!desc) { alert('Description is required.'); return; }
+
+    var tenders = getData('tenders');
+    var idx = tenders.findIndex(function(t) { return t.id === currentTenderId; });
+    if (idx === -1) return;
+    if (!tenders[idx].commercialItems) tenders[idx].commercialItems = [];
+
+    var payload = { phase: phase, description: desc, cleanType: cleanType, quantity: qty, rate: rate, total: qty * rate };
+    if (indexStr !== '') {
+        var i = parseInt(indexStr, 10);
+        var existing = tenders[idx].commercialItems[i];
+        if (!existing) return;
+        existing.phase = payload.phase;
+        existing.description = payload.description;
+        existing.cleanType = payload.cleanType;
+        existing.quantity = payload.quantity;
+        existing.rate = payload.rate;
+        existing.total = payload.total;
+    } else {
+        payload.invoiced = false;
+        tenders[idx].commercialItems.push(payload);
+    }
     tenders[idx].grandTotal = tenders[idx].commercialItems.reduce(function(s, ci) { return s + (ci.quantity || 0) * (ci.rate || 0); }, 0);
     setData('tenders', tenders);
+    closeModal('commercial-item');
     renderTenderTab();
     viewTender(currentTenderId);
 }
