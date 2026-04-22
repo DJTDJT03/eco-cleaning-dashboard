@@ -1507,6 +1507,14 @@ function toggleMobileMenu(force) {
             <div id="profit-drift-list"></div>
         </div>
 
+        <div class="card" id="cert-radar-card" style="margin-bottom:16px;display:none;">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Certifications Radar</span>
+                <span style="font-size:12px;color:var(--gray-500);font-weight:500;">Expiring or expired in the next 60 days.</span>
+            </div>
+            <div id="cert-radar-list"></div>
+        </div>
+
         <div class="card" style="margin-bottom:16px;">
             <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
                 <span>Recent WhatsApp Sends</span>
@@ -5439,6 +5447,9 @@ function refreshDashboard() {
     // Site profitability drift
     renderProfitDrift();
 
+    // Certifications radar (60-day window)
+    renderCertRadar();
+
     // Dashboard alerts
     renderDashboardAlerts();
 
@@ -5743,6 +5754,63 @@ function renderProfitDrift() {
     });
     if (bleeding.length > 5) {
         html += '<div style="padding:10px 20px;font-size:12px;color:var(--gray-500);border-top:1px solid var(--gray-100);">+ ' + (bleeding.length - 5) + ' more drifting — see Reports &rarr; Profitability.</div>';
+    }
+    html += '</div>';
+    list.innerHTML = html;
+}
+
+// ========== CERT RADAR ==========
+function renderCertRadar() {
+    var card = document.getElementById('cert-radar-card');
+    var list = document.getElementById('cert-radar-list');
+    if (!card || !list) return;
+
+    var today = new Date(); today.setHours(0,0,0,0);
+    var in60 = new Date(today); in60.setDate(in60.getDate() + 60);
+
+    var items = [];
+    var companyCerts = (typeof getCompanyCerts === 'function' ? getCompanyCerts() : []);
+    companyCerts.forEach(function(cc) {
+        if (!cc.expiryDate) return;
+        var exp = new Date(cc.expiryDate + 'T00:00:00');
+        if (exp > in60) return;
+        var name = cc.type === 'Other' ? (cc.customName || 'Other') : cc.type;
+        items.push({ name: name, owner: 'Company', expires: exp, section: 'settings' });
+    });
+    var subs = getData('subcontractors');
+    var subCerts = getData('subconCerts');
+    subCerts.forEach(function(sc) {
+        if (!sc.expiryDate) return;
+        var exp = new Date(sc.expiryDate + 'T00:00:00');
+        if (exp > in60) return;
+        var sub = subs.find(function(s){ return s.id === sc.subconId; });
+        var name = sc.type === 'other' ? (sc.customName || 'Other') : (sc.type || 'Certificate');
+        items.push({ name: name, owner: sub ? sub.name : 'Sub-Contractor', expires: exp, section: 'subcontractors' });
+    });
+
+    if (items.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    items.sort(function(a, b) { return a.expires - b.expires; });
+    card.style.display = '';
+
+    var html = '<div style="padding:8px 0;"><div style="display:grid;grid-template-columns:1fr 1fr 120px 90px 90px;gap:8px;padding:8px 20px;font-size:11px;color:var(--gray-500);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">'
+        + '<div>Certificate</div><div>Owner</div><div>Expires</div><div style="text-align:right;">Days</div><div></div></div>';
+    items.slice(0, 8).forEach(function(it) {
+        var daysLeft = Math.floor((it.expires - today) / (1000*60*60*24));
+        var color = daysLeft < 0 ? 'var(--danger)' : daysLeft <= 14 ? 'var(--danger)' : daysLeft <= 30 ? 'var(--warning)' : 'var(--gray-700)';
+        var label = daysLeft < 0 ? 'EXPIRED ' + Math.abs(daysLeft) + 'd ago' : daysLeft + 'd left';
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr 120px 90px 90px;gap:8px;align-items:center;padding:10px 20px;border-top:1px solid var(--gray-100);font-size:13px;">'
+            + '<div><strong>' + esc(it.name) + '</strong></div>'
+            + '<div>' + esc(it.owner) + '</div>'
+            + '<div>' + formatDate(it.expires.toISOString().slice(0, 10)) + '</div>'
+            + '<div style="text-align:right;color:' + color + ';font-weight:600;">' + label + '</div>'
+            + '<div style="text-align:right;"><button class="btn btn-secondary btn-sm" onclick="showSection(\'' + it.section + '\')">Open</button></div>'
+            + '</div>';
+    });
+    if (items.length > 8) {
+        html += '<div style="padding:10px 20px;font-size:12px;color:var(--gray-500);border-top:1px solid var(--gray-100);">+ ' + (items.length - 8) + ' more — see Settings / Sub-Contractors.</div>';
     }
     html += '</div>';
     list.innerHTML = html;
