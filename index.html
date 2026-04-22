@@ -2294,9 +2294,16 @@ function toggleMobileMenu(force) {
                         <input type="number" id="set-default-vat" value="20" step="0.1" placeholder="20">
                     </div>
                 </div>
-                <div class="form-group">
-                    <label>Default CIS Rate (%)</label>
-                    <input type="number" id="set-default-cis" value="20" step="0.1" placeholder="20">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Default CIS Rate (%)</label>
+                        <input type="number" id="set-default-cis" value="20" step="0.1" placeholder="20">
+                    </div>
+                    <div class="form-group">
+                        <label>Margin-at-risk threshold (%)</label>
+                        <input type="number" id="set-margin-threshold" value="20" step="0.5" placeholder="20">
+                        <div style="font-size:12px;color:var(--gray-500);margin-top:4px;">Plots and tenders below this margin % are flagged.</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -6260,6 +6267,12 @@ function viewTender(id) {
         var totalSparkle = plots.reduce(function(s, p) { return s + p.sparkle; }, 0);
         var totalAdditional = plots.reduce(function(s, p) { return s + p.additional; }, 0);
         var extrasTotal = extras.reduce(function(s, e) { return s + e.total; }, 0);
+        var tenderSubTotal = plots.reduce(function(s, p) { return s + (p.subTotal || 0); }, 0);
+        var tenderHasSub = tenderSubTotal > 0;
+        var tenderMargin = (tender.grandTotal || 0) - tenderSubTotal;
+        var tenderMarginPct = (tender.grandTotal || 0) > 0 ? (tenderMargin / tender.grandTotal) * 100 : 0;
+        var threshold = getMarginThreshold();
+        var marginCardColor = tenderMarginPct >= threshold ? 'var(--success)' : tenderMarginPct >= 0 ? 'var(--warning)' : 'var(--danger)';
         document.getElementById('tender-summary').innerHTML =
             '<div class="stat-card"><div class="label">Total Plots</div><div class="value">' + plots.length + '</div></div>' +
             '<div class="stat-card"><div class="label">BUILD Total</div><div class="value">' + fmtGBP(totalBuild) + '</div></div>' +
@@ -6267,7 +6280,11 @@ function viewTender(id) {
             '<div class="stat-card"><div class="label">Sparkle Total</div><div class="value">' + fmtGBP(totalSparkle) + '</div></div>' +
             '<div class="stat-card"><div class="label">Additional Total</div><div class="value">' + fmtGBP(totalAdditional) + '</div></div>' +
             '<div class="stat-card"><div class="label">Extras</div><div class="value">' + fmtGBP(extrasTotal) + '</div></div>' +
-            '<div class="stat-card" style="border-color:var(--primary);"><div class="label" style="color:var(--primary);font-weight:700;">Grand Total</div><div class="value" style="color:var(--primary);">' + fmtGBP(tender.grandTotal) + '</div></div>';
+            '<div class="stat-card" style="border-color:var(--primary);"><div class="label" style="color:var(--primary);font-weight:700;">Grand Total</div><div class="value" style="color:var(--primary);">' + fmtGBP(tender.grandTotal) + '</div></div>' +
+            (tenderHasSub ? (
+                '<div class="stat-card"><div class="label">Sub Total</div><div class="value" style="color:var(--danger);">' + fmtGBP(tenderSubTotal) + '</div></div>' +
+                '<div class="stat-card" style="border-color:' + marginCardColor + ';"><div class="label" style="color:' + marginCardColor + ';font-weight:700;">Margin</div><div class="value" style="color:' + marginCardColor + ';">' + fmtGBP(tenderMargin) + '</div><div class="change" style="color:' + marginCardColor + ';">' + tenderMarginPct.toFixed(1) + '% · threshold ' + threshold + '%' + (tenderMarginPct < threshold ? ' ⚠' : '') + '</div></div>'
+            ) : '');
     }
 
     renderTenderTab();
@@ -6310,8 +6327,13 @@ function renderTenderTab() {
                     ${tender.plots.map(function(p){
                         var subT = p.subTotal || 0;
                         var margin = (p.total || 0) - subT;
-                        var marginColor = margin >= 0 ? 'var(--success)' : 'var(--danger)';
-                        return `<tr>
+                        var marginPct = (p.total || 0) > 0 ? (margin / p.total) * 100 : 0;
+                        var threshold = getMarginThreshold();
+                        var atRisk = hasSub && p.total > 0 && marginPct < threshold;
+                        var marginColor = marginPct >= threshold ? 'var(--success)' : marginPct >= 0 ? 'var(--warning)' : 'var(--danger)';
+                        var rowStyle = atRisk ? ' style="background:rgba(193,18,31,0.04);"' : '';
+                        var warnIcon = atRisk ? ' <span title="Margin below ' + threshold + '% threshold" style="color:var(--danger);">⚠</span>' : '';
+                        return `<tr${rowStyle}>
                             <td><strong>${p.plot}</strong></td>
                             <td>${esc(p.houseType)}</td>
                             <td>${p.bedrooms}</td>
@@ -6321,7 +6343,7 @@ function renderTenderTab() {
                             <td class="num">${fmtGBP(p.sparkle)}</td>
                             <td class="num">${fmtGBP(p.additional)}</td>
                             <td class="num"><strong>${fmtGBP(p.total)}</strong></td>
-                            ${hasSub ? '<td class="num" style="color:var(--danger);">' + fmtGBP(subT) + '</td><td class="num" style="color:' + marginColor + ';font-weight:600;">' + fmtGBP(margin) + '</td>' : ''}
+                            ${hasSub ? '<td class="num" style="color:var(--danger);">' + fmtGBP(subT) + '</td><td class="num" style="color:' + marginColor + ';font-weight:600;">' + fmtGBP(margin) + ' <span style="font-weight:400;font-size:11px;">' + marginPct.toFixed(0) + '%</span>' + warnIcon + '</td>' : ''}
                         </tr>`;
                     }).join('')}
                 </tbody>
@@ -10500,6 +10522,13 @@ function getSettings() {
     try { return JSON.parse(raw); } catch(e) { return {}; }
 }
 
+function getMarginThreshold() {
+    var s = getSettings();
+    var t = parseFloat(s.marginThreshold);
+    if (!isFinite(t) || t < 0 || t > 100) return 20;
+    return t;
+}
+
 function saveSettingsData(data) {
     localStorage.setItem('cb_settings', JSON.stringify(data));
 }
@@ -10524,6 +10553,8 @@ function loadSettings() {
     document.getElementById('set-default-terms').value = s.defaultTermsDays || 30;
     document.getElementById('set-default-vat').value = s.defaultVatRate || 20;
     document.getElementById('set-default-cis').value = s.defaultCisRate || 20;
+    var mt = document.getElementById('set-margin-threshold');
+    if (mt) mt.value = (s.marginThreshold !== undefined && s.marginThreshold !== null) ? s.marginThreshold : 20;
     document.getElementById('settings-saved-msg').style.display = 'none';
     // Load logo preview
     renderLogoPreview();
@@ -10550,7 +10581,8 @@ function saveSettings() {
         paymentTerms: document.getElementById('set-payment-terms').value.trim(),
         defaultTermsDays: parseInt(document.getElementById('set-default-terms').value) || 30,
         defaultVatRate: parseFloat(document.getElementById('set-default-vat').value) || 20,
-        defaultCisRate: parseFloat(document.getElementById('set-default-cis').value) || 20
+        defaultCisRate: parseFloat(document.getElementById('set-default-cis').value) || 20,
+        marginThreshold: (function(){ var el = document.getElementById('set-margin-threshold'); var v = el ? parseFloat(el.value) : 20; return isFinite(v) && v >= 0 && v <= 100 ? v : 20; })()
     };
     // Preserve logo and certs
     if (existing.logoData) s.logoData = existing.logoData;
