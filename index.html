@@ -8348,10 +8348,38 @@ function renderRecurringBookings() {
             <td>${esc(b.crew)}</td>
             <td class="action-btns">
                 <button class="btn btn-secondary btn-sm" onclick="openModal('booking','${b.id}')">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="cloneBooking('${b.id}')" title="Reuse this schedule for a different client">Clone</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteBooking('${b.id}')">Delete</button>
             </td>
         </tr>`;
     }).join('');
+}
+
+function cloneBooking(sourceId) {
+    var src = getData('bookings').find(function(b){ return b.id === sourceId; });
+    if (!src) return;
+    // Open the modal in "new" mode so saveBooking creates a fresh record
+    openModal('booking');
+    // Pre-fill with the source's pattern, but clear client/site so the user is
+    // forced to pick where this template goes
+    document.getElementById('booking-name').value = src.name ? src.name + ' (copy)' : '';
+    document.getElementById('booking-client').value = '';
+    document.getElementById('booking-site').value = '';
+    document.getElementById('booking-start-time').value = src.startTime || '08:00';
+    document.getElementById('booking-end-time').value = src.endTime || '12:00';
+    document.getElementById('booking-crew').value = src.crew || '';
+    document.getElementById('booking-rate').value = src.rate || '';
+    // New start date defaults to today; leave end date blank
+    document.getElementById('booking-start-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('booking-end-date').value = '';
+    document.getElementById('booking-status').value = 'active';
+    document.getElementById('booking-notes').value = src.notes || '';
+    document.querySelectorAll('#booking-days input').forEach(function(cb){ cb.checked = false; });
+    (src.days || []).forEach(function(d) {
+        var cb = document.querySelector('#booking-days input[value="' + d + '"]');
+        if (cb) cb.checked = true;
+    });
+    setTimeout(function(){ document.getElementById('booking-client').focus(); }, 50);
 }
 
 // ========== PAY SHEET / SUB-CONTRACTOR INVOICES ==========
