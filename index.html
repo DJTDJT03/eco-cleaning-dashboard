@@ -1499,6 +1499,14 @@ function toggleMobileMenu(force) {
             <div id="chase-list" style="border-top:1px solid var(--gray-100);"></div>
         </div>
 
+        <div class="card" id="profit-drift-card" style="margin-bottom:16px;display:none;">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Site Profitability — Drift vs Quote</span>
+                <span style="font-size:12px;color:var(--gray-500);font-weight:500;">Live sites where actual sub cost is beating your quoted figure.</span>
+            </div>
+            <div id="profit-drift-list"></div>
+        </div>
+
         <div class="card" style="margin-bottom:16px;">
             <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
                 <span>Recent WhatsApp Sends</span>
@@ -5316,6 +5324,9 @@ function refreshDashboard() {
     // Cashflow + chase list
     renderCashflow();
 
+    // Site profitability drift
+    renderProfitDrift();
+
     // Dashboard alerts
     renderDashboardAlerts();
 
@@ -5494,6 +5505,70 @@ function chaseInvoice(invoiceId) {
         role: (target.role || '') + (target.role ? ' · ' : '') + client.name,
         prefill: msg
     });
+}
+
+// ========== SITE PROFITABILITY DRIFT ==========
+function _matchSubInvoicesToTender(tender, subInvoices, clientName) {
+    var tName = (tender.name || '').toLowerCase();
+    var cName = (clientName || '').toLowerCase();
+    if (!tName && !cName) return 0;
+    return subInvoices.reduce(function(s, si) {
+        var siSite = (si.site || '').toLowerCase();
+        var siDesc = (si.description || '').toLowerCase();
+        if (tName && (siSite.indexOf(tName) !== -1 || siDesc.indexOf(tName) !== -1)) return s + (si.net || si.gross || 0);
+        if (cName && (siSite.indexOf(cName) !== -1 || siDesc.indexOf(cName) !== -1)) return s + (si.net || si.gross || 0);
+        return s;
+    }, 0);
+}
+
+function renderProfitDrift() {
+    var card = document.getElementById('profit-drift-card');
+    var list = document.getElementById('profit-drift-list');
+    if (!card || !list) return;
+    var tenders = getData('tenders').filter(function(t) { return t.status === 'won' || t.status === 'in-progress'; });
+    var subInvoices = getData('subInvoices');
+    var clients = getData('clients');
+    var rows = [];
+    tenders.forEach(function(t) {
+        var client = t.clientId ? clients.find(function(c){ return c.id === t.clientId; }) : null;
+        var quotedRevenue = t.grandTotal || 0;
+        var quotedSubCost = t.subGrandTotal || (t.plots || []).reduce(function(s,p){ return s + (p.subTotal || 0); }, 0);
+        if (quotedRevenue <= 0) return;
+        var actualSubCost = _matchSubInvoicesToTender(t, subInvoices, client ? client.name : '');
+        if (actualSubCost <= 0) return; // nothing matched, skip
+        var quotedMargin = quotedRevenue - quotedSubCost;
+        var actualMargin = quotedRevenue - actualSubCost;
+        var drift = actualMargin - quotedMargin; // negative = bad
+        var driftPct = quotedMargin !== 0 ? (drift / Math.abs(quotedMargin)) * 100 : 0;
+        rows.push({ tender: t, client: client, quotedRevenue: quotedRevenue, quotedSubCost: quotedSubCost, actualSubCost: actualSubCost, quotedMargin: quotedMargin, actualMargin: actualMargin, drift: drift, driftPct: driftPct });
+    });
+
+    // Only surface sites with negative drift below -5% — or overshoot large enough to care
+    var bleeding = rows.filter(function(r) { return r.drift < 0 && (r.driftPct < -5 || r.drift < -500); });
+    bleeding.sort(function(a, b) { return a.drift - b.drift; });
+
+    if (bleeding.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = '';
+
+    var html = '<div style="padding:8px 0;"><div style="display:grid;grid-template-columns:1fr 120px 110px 110px 90px;gap:8px;padding:8px 20px;font-size:11px;color:var(--gray-500);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">'
+        + '<div>Site</div><div style="text-align:right;">Quoted margin</div><div style="text-align:right;">Actual margin</div><div style="text-align:right;">Drift</div><div></div></div>';
+    bleeding.slice(0, 5).forEach(function(r) {
+        html += '<div style="display:grid;grid-template-columns:1fr 120px 110px 110px 90px;gap:8px;align-items:center;padding:10px 20px;border-top:1px solid var(--gray-100);font-size:13px;">'
+            + '<div><strong>' + esc(r.tender.name) + '</strong>' + (r.client ? '<div style="font-size:11px;color:var(--gray-500);">' + esc(r.client.name) + '</div>' : '') + '</div>'
+            + '<div style="text-align:right;">' + fmtGBP(r.quotedMargin) + '</div>'
+            + '<div style="text-align:right;color:' + (r.actualMargin < 0 ? 'var(--danger)' : 'var(--gray-700)') + ';font-weight:600;">' + fmtGBP(r.actualMargin) + '</div>'
+            + '<div style="text-align:right;color:var(--danger);font-weight:600;">' + fmtGBP(r.drift) + '<div style="font-size:11px;font-weight:400;">' + r.driftPct.toFixed(0) + '%</div></div>'
+            + '<div style="text-align:right;"><button class="btn btn-secondary btn-sm" onclick="showSection(\'tenders\');viewTender(\'' + r.tender.id + '\');">Open</button></div>'
+            + '</div>';
+    });
+    if (bleeding.length > 5) {
+        html += '<div style="padding:10px 20px;font-size:12px;color:var(--gray-500);border-top:1px solid var(--gray-100);">+ ' + (bleeding.length - 5) + ' more drifting — see Reports &rarr; Profitability.</div>';
+    }
+    html += '</div>';
+    list.innerHTML = html;
 }
 
 // ========== DASHBOARD ALERTS ==========
@@ -7286,39 +7361,36 @@ function renderProjectProfitability(tenders, clients) {
     }
     var subInvoices = getData('subInvoices');
     var html = '<table class="tender-data-table"><thead><tr>' +
-        '<th>Project</th><th>Client</th><th>Tender Value</th><th>Sub Costs</th><th>Profit</th><th>Margin %</th><th>Bar</th>' +
+        '<th>Project</th><th>Client</th><th>Tender Value</th><th>Quoted Sub Cost</th><th>Actual Sub Cost</th><th>Quoted Margin</th><th>Actual Margin</th><th>Drift</th><th>Bar</th>' +
         '</tr></thead><tbody>';
     var maxVal = 1;
     var rows = [];
     for (var wi = 0; wi < wonTenders.length; wi++) {
         var wt = wonTenders[wi];
         var tClient = wt.clientId ? (clients || []).find(function(c) { return c.id === wt.clientId; }) : null;
-        var tName = (wt.name || '').toLowerCase();
-        var cName = tClient ? (tClient.name || '').toLowerCase() : '';
-        // Match sub invoices by tender name or client name in site/description
-        var subCost = subInvoices.reduce(function(s, si) {
-            var siSite = (si.site || '').toLowerCase();
-            var siDesc = (si.description || '').toLowerCase();
-            if (tName && (siSite.indexOf(tName) !== -1 || siDesc.indexOf(tName) !== -1)) return s + (si.gross || si.net || 0);
-            if (cName && (siSite.indexOf(cName) !== -1 || siDesc.indexOf(cName) !== -1)) return s + (si.gross || si.net || 0);
-            return s;
-        }, 0);
-        var profit = (wt.grandTotal || 0) - subCost;
-        var margin = wt.grandTotal > 0 ? ((profit / wt.grandTotal) * 100) : 0;
+        var quotedSubCost = wt.subGrandTotal || (wt.plots || []).reduce(function(s,p){ return s + (p.subTotal || 0); }, 0);
+        var actualSubCost = _matchSubInvoicesToTender(wt, subInvoices, tClient ? tClient.name : '');
+        var quotedMargin = (wt.grandTotal || 0) - quotedSubCost;
+        var actualMargin = (wt.grandTotal || 0) - actualSubCost;
+        var drift = actualMargin - quotedMargin;
+        var actualMarginPct = wt.grandTotal > 0 ? ((actualMargin / wt.grandTotal) * 100) : 0;
         if (wt.grandTotal > maxVal) maxVal = wt.grandTotal;
-        rows.push({ tender: wt, client: tClient, subCost: subCost, profit: profit, margin: margin });
+        rows.push({ tender: wt, client: tClient, quotedSubCost: quotedSubCost, actualSubCost: actualSubCost, quotedMargin: quotedMargin, actualMargin: actualMargin, drift: drift, marginPct: actualMarginPct });
     }
     for (var ri = 0; ri < rows.length; ri++) {
         var r = rows[ri];
-        var barColor = r.margin >= 20 ? 'var(--success)' : r.margin >= 0 ? 'var(--warning)' : 'var(--danger)';
+        var barColor = r.marginPct >= 20 ? 'var(--success)' : r.marginPct >= 0 ? 'var(--warning)' : 'var(--danger)';
         var barWidth = Math.max(0, Math.min(100, (r.tender.grandTotal / maxVal) * 100));
+        var driftColor = r.drift >= 0 ? 'var(--success)' : 'var(--danger)';
         html += '<tr>' +
             '<td><strong>' + esc(r.tender.name) + '</strong></td>' +
             '<td>' + (r.client ? esc(r.client.name) : '-') + '</td>' +
             '<td class="num">' + fmtGBP(r.tender.grandTotal) + '</td>' +
-            '<td class="num">' + fmtGBP(r.subCost) + '</td>' +
-            '<td class="num" style="color:' + (r.profit >= 0 ? 'var(--success)' : 'var(--danger)') + ';font-weight:600;">' + fmtGBP(r.profit) + '</td>' +
-            '<td class="num" style="font-weight:600;">' + r.margin.toFixed(1) + '%</td>' +
+            '<td class="num">' + fmtGBP(r.quotedSubCost) + '</td>' +
+            '<td class="num">' + fmtGBP(r.actualSubCost) + '</td>' +
+            '<td class="num">' + fmtGBP(r.quotedMargin) + '</td>' +
+            '<td class="num" style="color:' + (r.actualMargin >= 0 ? 'var(--success)' : 'var(--danger)') + ';font-weight:600;">' + fmtGBP(r.actualMargin) + '</td>' +
+            '<td class="num" style="color:' + driftColor + ';font-weight:600;">' + fmtGBP(r.drift) + '</td>' +
             '<td style="width:120px;"><div style="background:var(--gray-200);border-radius:4px;height:16px;overflow:hidden;">' +
             '<div style="width:' + barWidth.toFixed(1) + '%;height:100%;background:' + barColor + ';border-radius:4px;transition:width 0.3s;"></div></div></td>' +
             '</tr>';
