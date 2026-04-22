@@ -3364,6 +3364,10 @@ function toggleMobileMenu(force) {
 
 <!-- Quick Actions Bar -->
 <div class="quick-actions-bar" id="quick-actions-bar">
+    <button class="qa-btn qa-sub qa-capture" onclick="openQuickCapture(); toggleQuickActions();" title="Quick Capture" style="background:#2D6A4F;">
+        <span class="qa-tooltip">Quick Capture</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+    </button>
     <button class="qa-btn qa-sub qa-client" onclick="openModal('client'); toggleQuickActions();" title="New Client">
         <span class="qa-tooltip">New Client</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 11h-6"/><path d="M20 8v6"/></svg>
@@ -3379,6 +3383,38 @@ function toggleMobileMenu(force) {
     <button class="qa-btn qa-toggle" id="qa-toggle-btn" onclick="toggleQuickActions()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="22" height="22"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
     </button>
+</div>
+
+<!-- Quick Capture Modal (mobile-first) -->
+<div class="modal-overlay" id="modal-quick-capture">
+    <div class="modal" style="max-width:480px;">
+        <div class="modal-header">
+            <span>Quick Capture</span>
+            <button class="modal-close" onclick="closeModal('quick-capture')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="font-size:13px;color:var(--gray-500);margin-bottom:12px;">
+                On-site note — logs as a pending job for today so it doesn't get lost.
+            </div>
+            <div class="form-group">
+                <label>Client (optional)</label>
+                <select id="qc-client"><option value="">— not linked —</option></select>
+            </div>
+            <div class="form-group">
+                <label>What happened?</label>
+                <textarea id="qc-note" rows="4" placeholder="e.g. Block B stairwell needs an extra sparkle clean before Friday handover."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Photo (optional)</label>
+                <input type="file" id="qc-photo" accept="image/*" capture="environment">
+                <div id="qc-photo-preview" style="margin-top:8px;"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('quick-capture')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveQuickCapture()">Save note</button>
+        </div>
+    </div>
 </div>
 
 <!-- Keyboard Shortcuts Modal -->
@@ -5543,6 +5579,71 @@ function renderCashflow() {
     }
     html += '</div>';
     list.innerHTML = html;
+}
+
+function openQuickCapture() {
+    var sel = document.getElementById('qc-client');
+    sel.innerHTML = '<option value="">— not linked —</option>';
+    var clients = getData('clients').slice().sort(function(a, b) { return (a.name || '').localeCompare(b.name || ''); });
+    clients.forEach(function(c) {
+        var opt = document.createElement('option');
+        opt.value = c.id; opt.textContent = c.name || '(unnamed)';
+        sel.appendChild(opt);
+    });
+    // Remember last-used client for next time
+    var lastClient = localStorage.getItem('cb__qcLastClient') || '';
+    if (lastClient) sel.value = lastClient;
+    document.getElementById('qc-note').value = '';
+    document.getElementById('qc-photo').value = '';
+    document.getElementById('qc-photo-preview').innerHTML = '';
+    document.getElementById('modal-quick-capture').classList.add('active');
+    setTimeout(function(){ document.getElementById('qc-note').focus(); }, 50);
+
+    // Live photo preview + upload to Supabase Storage (via FileReader override)
+    document.getElementById('qc-photo').onchange = function(e) {
+        var file = e.target.files && e.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+            var prev = document.getElementById('qc-photo-preview');
+            prev.innerHTML = '<img src="' + ev.target.result + '" style="max-width:100%;max-height:180px;border-radius:8px;">';
+            window._qcPhotoUrl = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+    };
+}
+
+function saveQuickCapture() {
+    var clientId = document.getElementById('qc-client').value;
+    var note = document.getElementById('qc-note').value.trim();
+    if (!note) { alert('Add a quick note before saving.'); return; }
+    if (clientId) localStorage.setItem('cb__qcLastClient', clientId);
+    var today = new Date().toISOString().slice(0, 10);
+    var jobs = getData('jobs');
+    var firstLine = note.split('\n')[0].slice(0, 80) || 'Site note';
+    var job = {
+        id: generateId(),
+        name: firstLine,
+        clientId: clientId || '',
+        site: '',
+        date: today,
+        endDate: today,
+        crew: '',
+        status: 'pending',
+        cost: 0,
+        notes: note,
+        photoUrl: window._qcPhotoUrl || '',
+        capturedAt: new Date().toISOString(),
+        source: 'quick-capture'
+    };
+    jobs.push(job);
+    setData('jobs', jobs);
+    window._qcPhotoUrl = null;
+    closeModal('quick-capture');
+    if (typeof logActivity === 'function') logActivity('Quick capture saved', firstLine);
+    if (window._currentSection === 'dashboard' && typeof refreshDashboard === 'function') refreshDashboard();
+    if (window._currentSection === 'jobs' && typeof renderJobs === 'function') renderJobs();
+    if (typeof updateNavBadges === 'function') updateNavBadges();
 }
 
 function chaseInvoice(invoiceId) {
