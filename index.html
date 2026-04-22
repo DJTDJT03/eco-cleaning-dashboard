@@ -2630,6 +2630,18 @@ function toggleMobileMenu(force) {
                 <label>Notes</label>
                 <textarea id="client-notes" rows="2" placeholder="Any additional notes..."></textarea>
             </div>
+
+            <div id="client-portal-section" style="border-top:1px solid var(--gray-100);margin-top:16px;padding-top:16px;display:none;">
+                <div style="font-weight:600;margin-bottom:8px;">Client portal</div>
+                <div style="font-size:12px;color:var(--gray-500);margin-bottom:8px;">Share a read-only link so this client can see their own invoices and outstanding balance. Anyone with the link can view — revoke by clicking Regenerate or Disable.</div>
+                <div style="display:flex;gap:8px;align-items:stretch;">
+                    <input type="text" id="client-portal-link" readonly style="flex:1;font-family:monospace;font-size:12px;" placeholder="No link yet">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="copyClientPortalLink()">Copy</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="regenerateClientPortalToken()">Regenerate</button>
+                    <button type="button" class="btn btn-danger btn-sm" onclick="disableClientPortal()">Disable</button>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="client-portal-generate-btn" style="margin-top:8px;display:none;" onclick="regenerateClientPortalToken()">Generate share link</button>
+            </div>
         </div>
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeModal('client')">Cancel</button>
@@ -3760,11 +3772,15 @@ function openModal(type, id, isQuote) {
                 const sites = c.sites || (c.address ? [{ name: 'Main Site', address: c.address, region: '', invoiceContact: '', notes: '' }] : []);
                 contacts.forEach(ct => addClientContact(ct));
                 sites.forEach(st => addClientSite(st));
+                // Portal section - shown only for existing clients
+                document.getElementById('client-portal-section').style.display = '';
+                updateClientPortalUI(c);
             }
         } else {
             clearForm('client');
             addClientContact();
             addClientSite();
+            document.getElementById('client-portal-section').style.display = 'none';
         }
     }
 
@@ -5597,6 +5613,141 @@ function renderCashflow() {
     }
     html += '</div>';
     list.innerHTML = html;
+}
+
+// ========== CLIENT PORTAL ==========
+function _generatePortalToken() {
+    // 24-char random, URL-safe
+    var s = '';
+    for (var i = 0; i < 24; i++) {
+        s += Math.random().toString(36).slice(2, 3);
+    }
+    return s + Date.now().toString(36);
+}
+
+function _portalUrlForToken(token) {
+    var base = location.origin + location.pathname;
+    return base + '?portal=' + encodeURIComponent(token);
+}
+
+function updateClientPortalUI(client) {
+    var input = document.getElementById('client-portal-link');
+    var genBtn = document.getElementById('client-portal-generate-btn');
+    if (client.portalToken) {
+        input.value = _portalUrlForToken(client.portalToken);
+        input.style.display = '';
+        genBtn.style.display = 'none';
+    } else {
+        input.value = '';
+        input.placeholder = 'Not shared yet';
+        genBtn.style.display = '';
+    }
+}
+
+function regenerateClientPortalToken() {
+    var id = document.getElementById('client-id').value;
+    if (!id) { alert('Save the client first.'); return; }
+    var clients = getData('clients');
+    var c = clients.find(function(x){ return x.id === id; });
+    if (!c) return;
+    c.portalToken = _generatePortalToken();
+    setData('clients', clients);
+    updateClientPortalUI(c);
+}
+
+function disableClientPortal() {
+    var id = document.getElementById('client-id').value;
+    if (!id) return;
+    if (!confirm('Disable the portal link? Anyone using the old link will lose access.')) return;
+    var clients = getData('clients');
+    var c = clients.find(function(x){ return x.id === id; });
+    if (!c) return;
+    delete c.portalToken;
+    setData('clients', clients);
+    updateClientPortalUI(c);
+}
+
+function copyClientPortalLink() {
+    var input = document.getElementById('client-portal-link');
+    if (!input.value) { alert('Generate a link first.'); return; }
+    input.select();
+    try {
+        document.execCommand('copy');
+        var orig = event && event.target && event.target.textContent;
+        if (event && event.target) { event.target.textContent = 'Copied!'; setTimeout(function(){ event.target.textContent = orig || 'Copy'; }, 1500); }
+    } catch(e) {
+        alert('Link is selected — press Cmd/Ctrl+C to copy.');
+    }
+}
+
+function _renderClientPortal(token) {
+    document.body.innerHTML = '<div id="portal-root" style="max-width:800px;margin:0 auto;padding:24px 16px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#1F2A1D;">Loading your portal…</div>';
+    (window._syncReady || Promise.resolve()).then(function() {
+        var root = document.getElementById('portal-root');
+        if (!root) return;
+        var clients = getData('clients');
+        var client = clients.find(function(c){ return c.portalToken === token; });
+        var settings = getSettings();
+        var companyName = settings.companyName || 'Eco Cleaning Systems';
+        if (!client) {
+            root.innerHTML = '<div style="padding:40px;text-align:center;"><h1 style="color:#C1121F;">Link not recognised</h1><p>This share link has been disabled or regenerated. Please contact ' + esc(companyName) + ' for an updated link.</p></div>';
+            return;
+        }
+        var invoices = getData('invoices').filter(function(i) { return !i.isQuote && i.clientId === client.id; });
+        invoices.sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
+        var today = new Date(); today.setHours(0,0,0,0);
+        var outstanding = 0, overdue = 0;
+        invoices.forEach(function(inv) {
+            if (inv.status === 'paid' || inv.status === 'draft' || inv.status === 'voided') return;
+            var amt = _invOutstandingAmount(inv);
+            outstanding += amt;
+            var due = inv.dueDate ? new Date(inv.dueDate + 'T00:00:00') : null;
+            if (due && due < today) overdue += amt;
+        });
+        var html = '<div style="background:#2D6A4F;color:#fff;padding:24px;border-radius:12px;margin-bottom:20px;">'
+            + '<div style="font-size:13px;opacity:0.85;">' + esc(companyName) + ' client portal</div>'
+            + '<h1 style="font-size:24px;margin:4px 0 0;">' + esc(client.name) + '</h1>'
+            + '</div>';
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">'
+            + '<div style="background:#fff;border:1px solid #E0E4DC;border-radius:12px;padding:16px;">'
+            + '<div style="font-size:12px;color:#6B7265;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Outstanding</div>'
+            + '<div style="font-size:26px;font-weight:700;margin-top:4px;">' + fmtGBP(outstanding) + '</div>'
+            + '</div>'
+            + '<div style="background:#fff;border:1px solid #E0E4DC;border-radius:12px;padding:16px;">'
+            + '<div style="font-size:12px;color:#C1121F;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Of which overdue</div>'
+            + '<div style="font-size:26px;font-weight:700;margin-top:4px;color:#C1121F;">' + fmtGBP(overdue) + '</div>'
+            + '</div>'
+            + '</div>';
+        html += '<div style="background:#fff;border:1px solid #E0E4DC;border-radius:12px;overflow:hidden;">'
+            + '<div style="padding:16px 20px;border-bottom:1px solid #F0F2EE;font-weight:600;">Invoices</div>';
+        if (invoices.length === 0) {
+            html += '<div style="padding:20px;color:#6B7265;">No invoices on file yet.</div>';
+        } else {
+            html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+                + '<thead><tr style="background:#F8F9F7;"><th style="text-align:left;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Invoice</th>'
+                + '<th style="text-align:left;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Date</th>'
+                + '<th style="text-align:left;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Due</th>'
+                + '<th style="text-align:right;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Amount</th>'
+                + '<th style="text-align:left;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Status</th></tr></thead><tbody>';
+            invoices.forEach(function(inv) {
+                var statusColor = inv.status === 'paid' ? '#40916C' : inv.status === 'overdue' ? '#C1121F' : '#6B7265';
+                html += '<tr style="border-top:1px solid #F0F2EE;">'
+                    + '<td style="padding:10px 16px;"><strong>' + esc(inv.number || '-') + '</strong></td>'
+                    + '<td style="padding:10px 16px;">' + (inv.date ? formatDate(inv.date) : '-') + '</td>'
+                    + '<td style="padding:10px 16px;">' + (inv.dueDate ? formatDate(inv.dueDate) : '-') + '</td>'
+                    + '<td style="padding:10px 16px;text-align:right;font-weight:600;">' + fmtGBP(inv.total || 0) + '</td>'
+                    + '<td style="padding:10px 16px;color:' + statusColor + ';font-weight:600;text-transform:capitalize;">' + esc(inv.status || 'draft') + '</td>'
+                    + '</tr>';
+            });
+            html += '</tbody></table>';
+        }
+        html += '</div>';
+        html += '<div style="margin-top:20px;font-size:11px;color:#9CA396;text-align:center;">Figures as at ' + today.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) + '. For questions, contact ' + esc(companyName) + '.</div>';
+        root.innerHTML = html;
+    }).catch(function(e) {
+        var root = document.getElementById('portal-root');
+        if (root) root.textContent = 'Could not load portal: ' + e.message;
+    });
 }
 
 function openQuickCapture() {
@@ -14231,24 +14382,35 @@ function initA11y() {
     });
 }
 
-// Init — wait for Supabase sync to load remote data, then boot the app
-(window._syncReady || Promise.resolve()).then(function() {
-    try {
-        window._currentSection = 'dashboard';
-        refreshDashboard();
-        renderThisWeekSummary();
-        initTenderDropZone();
-        initSubInvDropZone();
-        initSubconInvoiceDrop();
-        initCertDropZone();
-        updateAlertBadge();
-        updateNavBadges();
-        initA11y();
-        checkWelcome();
-    } catch(e) {
-        document.body.innerHTML = '<div style="padding:40px;color:red;font-size:16px;"><h2>Startup Error</h2><p>' + e.message + '</p><pre>' + e.stack + '</pre></div>';
+// Portal mode: if ?portal=<token> is in the URL, render a read-only client view
+// and skip the normal app boot entirely.
+(function() {
+    var params = new URLSearchParams(location.search);
+    var portalToken = params.get('portal');
+    if (portalToken) {
+        _renderClientPortal(portalToken);
+        return;
     }
-});
+
+    // Normal init — wait for Supabase sync to load remote data, then boot the app
+    (window._syncReady || Promise.resolve()).then(function() {
+        try {
+            window._currentSection = 'dashboard';
+            refreshDashboard();
+            renderThisWeekSummary();
+            initTenderDropZone();
+            initSubInvDropZone();
+            initSubconInvoiceDrop();
+            initCertDropZone();
+            updateAlertBadge();
+            updateNavBadges();
+            initA11y();
+            checkWelcome();
+        } catch(e) {
+            document.body.innerHTML = '<div style="padding:40px;color:red;font-size:16px;"><h2>Startup Error</h2><p>' + e.message + '</p><pre>' + e.stack + '</pre></div>';
+        }
+    });
+})();
 </script>
 </body>
 </html>
