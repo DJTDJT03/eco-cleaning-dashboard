@@ -4944,7 +4944,7 @@ function saveInvoice() {
     setData('invoices', invoices);
     closeModal('invoice');
     renderInvoices();
-    logActivity('Invoice ' + (id ? 'updated' : 'created'), invoice.number || '');
+    logActivity('Invoice ' + (id ? 'updated' : 'created'), invoice.number || '', 'invoice', invoice.id);
 }
 
 function generateInvoiceNumber(isQuote) {
@@ -6300,7 +6300,8 @@ function viewTender(id) {
         '<button class="tender-tab" onclick="showTenderTab(\'signoff\')">Sign-Off</button>' +
         '<button class="tender-tab" onclick="showTenderTab(\'qc\')">QC Checklists</button>' +
         '<button class="tender-tab" onclick="showTenderTab(\'disputes\')">Disputes' + disputeBadge + '</button>' +
-        '<button class="tender-tab" onclick="showTenderTab(\'costs\')">Costs' + costBadge + '</button>';
+        '<button class="tender-tab" onclick="showTenderTab(\'costs\')">Costs' + costBadge + '</button>' +
+        '<button class="tender-tab" onclick="showTenderTab(\'activity\')">Activity</button>';
     if (isCommercial) {
         tabsContainer.innerHTML = '<button class="tender-tab active" onclick="showTenderTab(\'commercial\')">Commercial</button>' +
             '<button class="tender-tab" onclick="showTenderTab(\'applications\')">Applications</button>' +
@@ -6610,6 +6611,23 @@ function renderTenderTab() {
 
     if (currentTenderTab === 'costs') {
         container.innerHTML = renderCostsTab(currentTenderId);
+    }
+
+    if (currentTenderTab === 'activity') {
+        var entries = getActivityForRef('tender', currentTenderId);
+        if (entries.length === 0) {
+            container.innerHTML = '<div class="empty-state"><p>No activity logged yet for this tender. Status changes, snags, site diary entries and variations will appear here.</p></div>';
+        } else {
+            var rows = entries.map(function(e) {
+                var when = new Date(e.timestamp);
+                return '<tr>'
+                    + '<td style="white-space:nowrap;">' + when.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + '</td>'
+                    + '<td><strong>' + esc(e.action) + '</strong></td>'
+                    + '<td>' + esc(e.detail || '') + '</td>'
+                    + '</tr>';
+            }).join('');
+            container.innerHTML = '<table class="tender-data-table"><thead><tr><th style="width:180px;">When</th><th style="width:200px;">Action</th><th>Detail</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        }
     }
 
     var invContainer = document.getElementById('tender-tab-invoicing-content');
@@ -7217,7 +7235,7 @@ function setTenderStatus(status) {
     tenders[idx].status = status;
     setData('tenders', tenders);
     updateTenderStatusBadge(status);
-    logActivity('Tender status changed', (tenders[idx].name || '') + ' -> ' + status);
+    logActivity('Tender status changed', (tenders[idx].name || '') + ' -> ' + status, 'tender', currentTenderId);
 }
 
 function setTenderClient(clientId) {
@@ -10936,12 +10954,23 @@ async function clearAllData() {
 }
 
 // ========== ACTIVITY LOG ==========
-function logActivity(action, detail) {
+function logActivity(action, detail, refType, refId) {
     var log = getData('activityLog');
-    log.unshift({ action: action, detail: detail, timestamp: new Date().toISOString() });
-    if (log.length > 100) log = log.slice(0, 100);
+    var entry = { action: action, detail: detail, timestamp: new Date().toISOString() };
+    if (refType) entry.refType = refType;
+    if (refId) entry.refId = refId;
+    log.unshift(entry);
+    // Keep up to 500 entries so per-record timelines survive longer
+    if (log.length > 500) log = log.slice(0, 500);
     setData('activityLog', log);
     updateAlertBadge();
+}
+
+function getActivityForRef(refType, refId) {
+    if (!refType || !refId) return [];
+    return getData('activityLog').filter(function(e) {
+        return e.refType === refType && e.refId === refId;
+    });
 }
 
 function renderActivityLog() {
@@ -11627,7 +11656,7 @@ function saveSnag(tenderId, snag) {
     if (!tender.snags) tender.snags = [];
     tender.snags.push(snag);
     setData('tenders', tenders);
-    logActivity('Snag added', snag.plotArea + ' - ' + snag.description);
+    logActivity('Snag added', snag.plotArea + ' - ' + snag.description, 'tender', tenderId);
     showTenderTab('snagging');
 }
 
@@ -11745,7 +11774,7 @@ function saveDiaryEntry(tenderId, entry) {
     if (!tender.siteDiary) tender.siteDiary = [];
     tender.siteDiary.push(entry);
     setData('tenders', tenders);
-    logActivity('Site diary entry', formatDate(entry.date) + ' - ' + (entry.works || '').substring(0, 40));
+    logActivity('Site diary entry', formatDate(entry.date) + ' - ' + (entry.works || '').substring(0, 40), 'tender', tenderId);
     showTenderTab('diary');
 }
 
@@ -11823,7 +11852,7 @@ function addVariation(tenderId) {
         status: status, date: new Date().toISOString().split('T')[0], clientRef: clientRef
     });
     setData('tenders', tenders);
-    logActivity('Variation added', voNumber + ' - ' + fmtGBP(value));
+    logActivity('Variation added', voNumber + ' - ' + fmtGBP(value), 'tender', tenderId);
     showTenderTab('variations');
 }
 
