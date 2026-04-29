@@ -1312,6 +1312,37 @@
             }
         }
 
+        /* Dashboard list rows (cashflow chase, profit drift, cert radar) collapse on small screens */
+        @media (max-width: 600px) {
+            #chase-list > div > div,
+            #profit-drift-list > div > div,
+            #cert-radar-list > div > div {
+                grid-template-columns: 1fr !important;
+                gap: 4px !important;
+                padding-top: 12px !important;
+                padding-bottom: 12px !important;
+            }
+            #chase-list > div > div > div,
+            #profit-drift-list > div > div > div,
+            #cert-radar-list > div > div > div {
+                text-align: left !important;
+            }
+            /* Hide the column-header rows on phones since each value labels itself */
+            #chase-list > div > div:first-child,
+            #profit-drift-list > div > div:first-child,
+            #cert-radar-list > div > div:first-child {
+                display: none !important;
+            }
+            /* Cashflow split header → stacked */
+            #cashflow-card > div[style*="grid-template-columns:1fr 1fr"] {
+                grid-template-columns: 1fr !important;
+            }
+            #cashflow-card > div > div[style*="border-right"] {
+                border-right: none !important;
+                border-bottom: 1px solid var(--gray-100) !important;
+            }
+        }
+
         @media (max-width: 480px) {
             .main { padding: 60px 8px 16px; }
             .main table th, .main table td { padding: 6px 8px; font-size: 12px; }
@@ -5617,10 +5648,16 @@ function renderCashflow() {
 
 // ========== CLIENT PORTAL ==========
 function _generatePortalToken() {
-    // 24-char random, URL-safe
+    // Prefer crypto.getRandomValues for higher entropy; fall back to Math.random
+    var alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    var len = 32;
     var s = '';
-    for (var i = 0; i < 24; i++) {
-        s += Math.random().toString(36).slice(2, 3);
+    if (window.crypto && window.crypto.getRandomValues) {
+        var buf = new Uint8Array(len);
+        window.crypto.getRandomValues(buf);
+        for (var i = 0; i < len; i++) s += alphabet[buf[i] % alphabet.length];
+    } else {
+        for (var j = 0; j < len; j++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
     }
     return s + Date.now().toString(36);
 }
@@ -5728,14 +5765,17 @@ function _renderClientPortal(token) {
                 + '<th style="text-align:left;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Date</th>'
                 + '<th style="text-align:left;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Due</th>'
                 + '<th style="text-align:right;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Amount</th>'
+                + '<th style="text-align:right;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Outstanding</th>'
                 + '<th style="text-align:left;padding:10px 16px;font-size:11px;color:#6B7265;text-transform:uppercase;letter-spacing:0.5px;">Status</th></tr></thead><tbody>';
             invoices.forEach(function(inv) {
                 var statusColor = inv.status === 'paid' ? '#40916C' : inv.status === 'overdue' ? '#C1121F' : '#6B7265';
+                var outstandingForRow = (inv.status === 'paid' || inv.status === 'voided') ? 0 : _invOutstandingAmount(inv);
                 html += '<tr style="border-top:1px solid #F0F2EE;">'
                     + '<td style="padding:10px 16px;"><strong>' + esc(inv.number || '-') + '</strong></td>'
                     + '<td style="padding:10px 16px;">' + (inv.date ? formatDate(inv.date) : '-') + '</td>'
                     + '<td style="padding:10px 16px;">' + (inv.dueDate ? formatDate(inv.dueDate) : '-') + '</td>'
-                    + '<td style="padding:10px 16px;text-align:right;font-weight:600;">' + fmtGBP(inv.total || 0) + '</td>'
+                    + '<td style="padding:10px 16px;text-align:right;">' + fmtGBP(inv.total || 0) + '</td>'
+                    + '<td style="padding:10px 16px;text-align:right;font-weight:600;color:' + (outstandingForRow > 0 ? '#C1121F' : '#40916C') + ';">' + fmtGBP(outstandingForRow) + '</td>'
                     + '<td style="padding:10px 16px;color:' + statusColor + ';font-weight:600;text-transform:capitalize;">' + esc(inv.status || 'draft') + '</td>'
                     + '</tr>';
             });
@@ -5746,7 +5786,7 @@ function _renderClientPortal(token) {
         root.innerHTML = html;
     }).catch(function(e) {
         var root = document.getElementById('portal-root');
-        if (root) root.textContent = 'Could not load portal: ' + e.message;
+        if (root) root.textContent = 'Could not load portal: ' + (e && e.message ? e.message : 'unknown error');
     });
 }
 
@@ -5765,6 +5805,7 @@ function openQuickCapture() {
     document.getElementById('qc-note').value = '';
     document.getElementById('qc-photo').value = '';
     document.getElementById('qc-photo-preview').innerHTML = '';
+    window._qcPhotoUrl = null; // clear any stale photo from a previous capture
     document.getElementById('modal-quick-capture').classList.add('active');
     setTimeout(function(){ document.getElementById('qc-note').focus(); }, 50);
 
@@ -5836,8 +5877,10 @@ function chaseInvoice(invoiceId) {
     var msg = 'Hi ' + firstName + ', hope you\'re well. Invoice ' + (inv.number || '') + ' for ' + fmtGBP(amount)
         + (inv.dueDate ? ' (due ' + formatDate(inv.dueDate) + ')' : '')
         + ' is showing as outstanding on our books. Could you let me know when to expect payment please?' + sig;
-    // Remember which invoice this chase is tied to so send can stamp lastChasedAt
+    // Remember which invoice this chase is tied to so send can stamp lastChasedAt.
+    // Use a one-shot flag so openQuickWhatsApp doesn't immediately clear it.
     window._chaseContext = { invoiceId: inv.id };
+    window._chaseContextPending = true;
     openQuickWhatsApp({
         phone: normalisePhone(target.phone),
         name: target.name || client.name,
@@ -8514,6 +8557,9 @@ window._quickWaContext = null;
 function openQuickWhatsApp(opts) {
     opts = opts || {};
     window._quickWaContext = opts;
+    // Clear any stale chase context — chaseInvoice() sets it again right before opening
+    if (!window._chaseContextPending) window._chaseContext = null;
+    window._chaseContextPending = false;
     document.getElementById('quick-whatsapp-title').textContent = 'Send WhatsApp' + (opts.name ? ' — ' + opts.name : '');
     document.getElementById('quick-whatsapp-phone').value = opts.phone || '';
     document.getElementById('quick-whatsapp-recipient').textContent = opts.name ? (opts.name + (opts.role ? ' (' + opts.role + ')' : '')) : '';
